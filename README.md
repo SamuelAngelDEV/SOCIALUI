@@ -16,6 +16,10 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
+   On Node 24, `expo start` crashes in its dependency validator with
+   `TypeError: Body is unusable`. Use Node 22 LTS, or skip the check with
+   `EXPO_OFFLINE=1 npx expo start`.
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)
