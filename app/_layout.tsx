@@ -39,6 +39,7 @@ export default function RootLayout() {
       >
         <Stack.Screen name="index" />
         <Stack.Screen name="settings" />
+        <Stack.Screen name="insights" />
         <Stack.Screen name="platform/[id]" />
         <Stack.Screen name="snapchat" options={{ presentation: 'modal' }} />
       </Stack>

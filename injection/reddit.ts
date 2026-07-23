@@ -5,7 +5,7 @@ import { buildScript, Rule, RouteGuard } from './engine';
  * <shreddit-post> custom elements with <faceplate-number> counters — unusually
  * clean anchors.
  */
-const RULES: Rule[] = [
+export const RULES: Rule[] = [
   {
     key: 'blockPopular',
     css: [

@@ -4,11 +4,21 @@ export type Rule = {
   /** CSS selectors hidden with `display: none` when the feature is on. */
   css?: string[];
   /**
-   * JS text pass: hide the nearest `ancestor` of any element whose trimmed text
-   * equals one of `match`. Used where `:contains()` would be needed (it is not
-   * valid CSS). Case-insensitive.
+   * JS text pass, used where `:contains()` would be needed (not valid CSS).
+   * Scans small `probe` elements; on a text hit, hides `el.closest(closest)`
+   * (falls back to the probe itself). Matching is case-insensitive against the
+   * probe's trimmed text: substring by default, whole-text with `exact`, or
+   * RegExp sources with `regex` — exact/regex exist to stop caption
+   * false-positives (a caption merely CONTAINING "sponsored" must not hide the
+   * post; the sponsored label IS exactly "sponsored").
    */
-  textHide?: { match: string[]; ancestor: string };
+  textHide?: {
+    probe: string;
+    match: string[];
+    closest: string;
+    exact?: boolean;
+    regex?: boolean;
+  };
 };
 
 export type RouteGuard = {
@@ -50,6 +60,14 @@ export type BuildScriptArgs = {
    * obfuscation. Only safe on sites where red is not part of the chrome.
    */
   badgeKey?: string;
+  /**
+   * Feature key controlling whether badges INSIDE the DM/messages link are hidden.
+   * When off, DM unread badges are kept even while other badges are removed. The
+   * icon itself is never touched — only the red overlay bubble.
+   */
+  dmBadgeKey?: string;
+  /** Selector for the DM/messages link that a DM badge lives inside. */
+  dmBadgeSelector?: string;
 };
 
 /**
@@ -69,6 +87,8 @@ export function buildScript(args: BuildScriptArgs): string {
     limitRequireDescendant,
     limitPath,
     badgeKey,
+    dmBadgeKey,
+    dmBadgeSelector,
   } = args;
 
   // The at-cap style pre-hides any post we haven't explicitly marked as kept, so
@@ -89,18 +109,12 @@ export function buildScript(args: BuildScriptArgs): string {
     css += `\nhtml { filter: grayscale(1) !important; }`;
   }
 
+  // No CSS nth-of-type cap: it miscounts skeleton posts and only works when
+  // items are siblings. applyFeedLimit() caps by real, loaded posts instead.
+  // No in-feed end message either — the full-screen native wall is the only
+  // end-of-feed signal (the injected ::after version kept landing mid-feed
+  // when Instagram reordered/virtualized posts, so it was removed).
   const limitActive = !!(limitKey && config[limitKey] && limitSelector);
-  if (limitActive) {
-    // No CSS nth-of-type cap: it miscounts skeleton posts and only works when
-    // items are siblings. applyFeedLimit() caps by real, loaded posts instead.
-    //
-    // End message is a ::after pseudo-element on the LAST KEPT post — no DOM node
-    // of ours ever sits inside the site's React tree (crash-safe), and it renders
-    // exactly under the final post. Inert until data-quiet-last is set at cap time.
-    css += `
-[data-quiet-last]::after{content:"You\\2019re all caught up";display:block;padding:40px 20px 72px;text-align:center;font-family:-apple-system,system-ui,sans-serif;font-size:17px;font-weight:600;color:#1A1A1A;animation:quiet-bounce-in .5s cubic-bezier(.2,.8,.3,1.2) both;}
-@keyframes quiet-bounce-in{0%{transform:translateY(14px);opacity:0}60%{transform:translateY(-4px);opacity:1}100%{transform:translateY(0);opacity:1}}`;
-  }
 
   const activeTextRules = rules.filter((r) => config[r.key] && r.textHide);
 
@@ -113,12 +127,17 @@ export function buildScript(args: BuildScriptArgs): string {
       var css = ${JSON.stringify(css)};
       var textRules = ${JSON.stringify(
         activeTextRules.map((r) => ({
-          match: r.textHide!.match.map((m) => m.toLowerCase()),
-          ancestor: r.textHide!.ancestor,
+          probe: r.textHide!.probe,
+          match: r.textHide!.match.map((m) => (r.textHide!.regex ? m : m.toLowerCase())),
+          closest: r.textHide!.closest,
+          exact: !!r.textHide!.exact,
+          regex: !!r.textHide!.regex,
         }))
       )};
       var guards = ${JSON.stringify(guards.filter((g) => config[g.key]))};
       var hideBadges = ${badgeKey ? JSON.stringify(!!config[badgeKey]) : 'false'};
+      var hideDmBadges = ${dmBadgeKey ? JSON.stringify(!!config[dmBadgeKey]) : 'true'};
+      var dmBadgeSelector = ${JSON.stringify(dmBadgeSelector || '')};
       var limitActive = ${JSON.stringify(limitActive)};
       var limitSelector = ${JSON.stringify(limitSelector || '')};
       var limitCount = ${JSON.stringify(limitCount)};
@@ -134,22 +153,48 @@ export function buildScript(args: BuildScriptArgs): string {
         (document.head || document.documentElement).appendChild(style);
       }
 
+      // Compile regex sources once.
+      for (var tr = 0; tr < textRules.length; tr++) {
+        if (textRules[tr].regex) {
+          var compiled = [];
+          for (var ts = 0; ts < textRules[tr].match.length; ts++) {
+            try { compiled.push(new RegExp(textRules[tr].match[ts])); } catch (e) {}
+          }
+          textRules[tr].compiled = compiled;
+        }
+      }
+
+      function textHits(rule, text) {
+        if (rule.regex) {
+          for (var c = 0; c < rule.compiled.length; c++) {
+            if (rule.compiled[c].test(text)) return true;
+          }
+          return false;
+        }
+        for (var m = 0; m < rule.match.length; m++) {
+          if (rule.exact ? text === rule.match[m] : text.indexOf(rule.match[m]) !== -1) {
+            return true;
+          }
+        }
+        return false;
+      }
+
       function applyTextRules() {
         if (!textRules.length) return;
         for (var i = 0; i < textRules.length; i++) {
           var rule = textRules[i];
-          var nodes = document.querySelectorAll(rule.ancestor);
+          var nodes = document.querySelectorAll(rule.probe);
           for (var j = 0; j < nodes.length; j++) {
             var node = nodes[j];
-            if (node.getAttribute('data-quiet-hidden')) continue;
-            var text = (node.textContent || '').trim().toLowerCase();
-            for (var k = 0; k < rule.match.length; k++) {
-              if (text.indexOf(rule.match[k]) !== -1) {
-                node.setAttribute('data-quiet-hidden', '1');
-                node.style.setProperty('display', 'none', 'important');
-                break;
-              }
-            }
+            var text = (node.textContent || '').trim();
+            // Probes are labels/counters, not paragraphs — a long text can't be
+            // a label, and skipping it keeps the scan cheap and caption-safe.
+            if (!text || text.length > 140) continue;
+            if (!textHits(rule, text.toLowerCase())) continue;
+            var target = node.closest(rule.closest) || node;
+            if (target.getAttribute('data-quiet-hidden')) continue;
+            target.setAttribute('data-quiet-hidden', '1');
+            target.style.setProperty('display', 'none', 'important');
           }
         }
       }
@@ -159,8 +204,45 @@ export function buildScript(args: BuildScriptArgs): string {
       // re-runs them once scrolling settles.
       var lastScroll = 0;
       var scrollTimer = null;
+      // Limit-wall state: capped = the cap style is live; wallSignaled = we already
+      // told the app once for this cap (reset when the limit is raised).
+      var isCapped = false;
+      var wallSignaled = false;
+
+      function maybeSignalWall() {
+        if (!isCapped || wallSignaled) return;
+        var seenAll = false;
+        if (canMeasure) {
+          // Fire only when the LAST kept post has actually been seen: its bottom
+          // edge entered the viewport (or was scrolled past). Immune to the
+          // site's scrollHeight jumping around, which made the old proximity
+          // check fire randomly mid-feed.
+          var kept = document.querySelectorAll('[data-quiet-keep]');
+          var last = kept[kept.length - 1];
+          if (!last) return;
+          var rect = last.getBoundingClientRect();
+          seenAll = rect.bottom <= window.innerHeight + 80;
+        } else {
+          // No-layout engines (tests): fall back to page-bottom proximity.
+          var doc = document.documentElement;
+          var bottom = (window.scrollY || window.pageYOffset || 0) + window.innerHeight;
+          seenAll = bottom >= doc.scrollHeight - 200;
+        }
+        if (!seenAll) return;
+        wallSignaled = true;
+        try {
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'quiet-limit-reached',
+              limit: limitCount
+            }));
+          }
+        } catch (e) {}
+      }
+
       function onScroll() {
         lastScroll = Date.now();
+        try { maybeSignalWall(); } catch (e) {}
         if (scrollTimer) return;
         scrollTimer = setTimeout(function() {
           scrollTimer = null;
@@ -186,6 +268,11 @@ export function buildScript(args: BuildScriptArgs): string {
           var el = nodes[i];
           if (el.getAttribute('data-quiet-badge')) continue;
           if (el.children.length > 1) continue;            // badges are leaf-ish
+          // Never touch an icon or a link — we only want the red overlay bubble,
+          // so the messages/inbox button stays fully visible and clickable.
+          if (el.querySelector && el.querySelector('svg, img, a, button')) continue;
+          var tag = el.tagName;
+          if (tag === 'A' || tag === 'BUTTON' || tag === 'SVG') continue;
           var t = (el.textContent || '').trim();
           if (t.length > 3) continue;                      // count or empty dot
           if (t && !/^\\d+\\+?$/.test(t)) continue;         // digits (or "9+") or empty
@@ -196,6 +283,11 @@ export function buildScript(args: BuildScriptArgs): string {
           if (red > 190 && green < 95 && blue < 95) {       // Instagram-red family
             var rect = el.getBoundingClientRect();          // read
             if (rect.width > 0 && rect.width <= 46 && rect.height <= 30) {
+              // If this badge sits on the DM/messages link, only hide it when the
+              // DM sub-option is on — otherwise the unread count is kept.
+              if (dmBadgeSelector && el.closest && el.closest(dmBadgeSelector)) {
+                if (!hideDmBadges) continue;
+              }
               toHide.push(el);
             }
           }
@@ -206,13 +298,39 @@ export function buildScript(args: BuildScriptArgs): string {
         }
       }
 
-      // Cap the feed by real, loaded posts (skeletons lack limitRequireDescendant
-      // and never count). At cap time the first N posts are MARKED as kept and a
-      // style is injected that hides anything unmarked at first paint — so a
-      // late-arriving post can never flash on screen, even for one frame. The end
-      // message is a ::after on the last kept post (styled in the base CSS): no
-      // node of ours inside the site's React tree, always positioned right under
-      // the final post. Scoped to limitPath so post details/profiles are untouched.
+      // Cap the feed at exactly limitCount VISIBLE posts.
+      //
+      // Keeps are PERSISTENT: once a post is marked data-quiet-keep it stays kept
+      // for the life of the page, even if the site later virtualizes it (guts its
+      // content, removing the timestamp). Recounting from scratch each pass made
+      // the kept window shift as posts virtualized — that was the glitching.
+      //
+      // Eligibility excludes posts the user can't see: ones another Quiet rule hid
+      // (data-quiet-hidden / inline display:none) and, where the engine can
+      // measure, ones the site itself renders invisibly. Counting an invisible
+      // post as one of the N is how "5" showed only 4 posts.
+      //
+      // The end message is a ::after on the last kept post; the cap style hides
+      // anything unmarked at first paint. Scoped to limitPath so post details and
+      // profiles are untouched.
+
+      // jsdom and other no-layout engines return no rects even for the root —
+      // skip geometric visibility checks there and rely on the cheap checks.
+      var canMeasure = false;
+      try {
+        canMeasure = document.documentElement.getClientRects().length > 0;
+      } catch (e) {}
+
+      function isEligiblePost(el) {
+        if (el.hasAttribute('data-quiet-keep')) return false;   // already counted
+        if (el.getAttribute('data-quiet-hidden')) return false; // hidden by our rules
+        if (el.getAttribute('aria-hidden') === 'true') return false;
+        if (el.style && el.style.display === 'none') return false;
+        if (limitRequireDescendant && !el.querySelector(limitRequireDescendant)) return false;
+        if (canMeasure && el.getClientRects().length === 0) return false; // invisible
+        return true;
+      }
+
       function applyFeedLimit() {
         if (!limitActive) return;
 
@@ -220,31 +338,24 @@ export function buildScript(args: BuildScriptArgs): string {
         var norm = function(p) { return p.replace(/\\/+$/, ''); };
         if (limitPath && norm(location.pathname) !== norm(limitPath)) {
           if (capStyleEl) capStyleEl.remove();   // off-feed page: never cap here
+          isCapped = false;
           return;
         }
 
-        var all = document.querySelectorAll(limitSelector);
-        var real = [];
-        for (var i = 0; i < all.length; i++) {
-          if (!limitRequireDescendant || all[i].querySelector(limitRequireDescendant)) {
-            real.push(all[i]);
-          }
-        }
-        if (real.length < limitCount) return;    // not at the cap yet
+        var keptCount = document.querySelectorAll('[data-quiet-keep]').length;
 
-        // Mark the kept set; the cap style hides everything else at paint time.
-        var last = real[limitCount - 1];
-        for (var k = 0; k < limitCount; k++) {
-          if (!real[k].hasAttribute('data-quiet-keep')) {
-            real[k].setAttribute('data-quiet-keep', '1');
-          }
-          if (real[k] !== last && real[k].hasAttribute('data-quiet-last')) {
-            real[k].removeAttribute('data-quiet-last');
+        // Fill remaining slots with eligible (visible, unhidden) posts, in order.
+        if (keptCount < limitCount) {
+          var all = document.querySelectorAll(limitSelector);
+          for (var i = 0; i < all.length && keptCount < limitCount; i++) {
+            if (isEligiblePost(all[i])) {
+              all[i].setAttribute('data-quiet-keep', '1');
+              keptCount++;
+            }
           }
         }
-        if (!last.hasAttribute('data-quiet-last')) {
-          last.setAttribute('data-quiet-last', '1');
-        }
+
+        if (keptCount < limitCount) return;      // not at the cap yet
 
         if (!capStyleEl) {
           var capStyle = document.createElement('style');
@@ -259,7 +370,22 @@ export function buildScript(args: BuildScriptArgs): string {
             '[role="progressbar"] { display: none !important; }';
           (document.head || document.documentElement).appendChild(capStyle);
         }
+        isCapped = true;
       }
+
+      // Called from the app when the user chooses "Show more" on the limit wall.
+      // Raises the cap for this page session; the next pass re-marks keeps up to
+      // the new count and re-arms the cap (and wall) at the new limit.
+      window.__quietSetLimit = function(n) {
+        try {
+          limitCount = n;
+          wallSignaled = false;
+          isCapped = false;
+          var cs = document.getElementById('quiet-cap-style');
+          if (cs) cs.remove();
+          runPasses();
+        } catch (e) {}
+      };
 
       function guardRoute() {
         var path = location.pathname;
@@ -288,9 +414,25 @@ export function buildScript(args: BuildScriptArgs): string {
       // The cheap passes (style tag, text rules, route guard) run immediately.
       var ready = false;
 
+      // Tell the app when the SPA navigates, so it can bucket time per section
+      // (feed / reels / messages). Data never leaves the device — the app stores
+      // it locally. lastHref starts empty so the first call reports the entry URL.
+      var lastHref = '';
+      function reportNav() {
+        if (location.href === lastHref) return;
+        lastHref = location.href;
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'quiet-nav',
+            path: location.pathname
+          }));
+        }
+      }
+
       // Every pass is wrapped so a thrown error in our code (a bad selector on an
       // old engine, a detached node) can never break or hang the host page.
       function runPasses() {
+        try { reportNav(); } catch (e) {}
         try { ensureStyle(); } catch (e) {}
         try { applyTextRules(); } catch (e) {}
         try { guardRoute(); } catch (e) {}

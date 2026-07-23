@@ -4,7 +4,7 @@ import { buildScript, Rule, RouteGuard } from './engine';
  * Rule keys match `FEATURES.youtube` in constants/features.ts. Targets are the
  * mobile web (m.youtube.com) DOM, which uses ytm-* custom elements.
  */
-const RULES: Rule[] = [
+export const RULES: Rule[] = [
   {
     key: 'blockShorts',
     css: [
@@ -30,12 +30,24 @@ const RULES: Rule[] = [
   {
     key: 'blockSponsored',
     css: ['ytm-promoted-video-renderer', 'ytm-companion-slot-renderer', '.ad-container'],
-    textHide: { match: ['sponsored'], ancestor: 'ytm-rich-item-renderer, ytm-video-with-context-renderer' },
+    textHide: {
+      probe: 'span, div',
+      match: ['sponsored', 'ad'],
+      exact: true,
+      closest: 'ytm-rich-item-renderer, ytm-video-with-context-renderer, ytm-companion-slot-renderer',
+    },
   },
   {
     key: 'hideViewCounts',
-    // View counts live in the metadata line; hidden by aria where possible.
+    // View counts live in the metadata line; hidden by aria where possible plus
+    // an exact-text pass for "1.2M views" spans.
     css: ['span[aria-label*="views"]', '.ytm-view-count'],
+    textHide: {
+      probe: 'span',
+      match: ['^[\\d.,]+ ?[kmb]? ?views$', '^no views$'],
+      regex: true,
+      closest: 'span',
+    },
   },
   {
     key: 'hideLikeCounts',

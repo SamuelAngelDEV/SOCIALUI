@@ -4,7 +4,7 @@ import { buildScript, Rule, RouteGuard } from './engine';
  * Rule keys match `FEATURES.linkedin`. LinkedIn's web classes are BEM-style and
  * comparatively stable (feed-shared-update-v2, notification-badge, etc.).
  */
-const RULES: Rule[] = [
+export const RULES: Rule[] = [
   {
     key: 'hideFeed',
     // Hide the home feed stream but keep the rest of the page (nav, search,
@@ -18,7 +18,12 @@ const RULES: Rule[] = [
   {
     key: 'blockNews',
     css: ['[data-view-name="news-module"]', 'aside[aria-label="LinkedIn News"]', '#news-module'],
-    textHide: { match: ['linkedin news'], ancestor: 'aside, section' },
+    textHide: {
+      probe: 'span, h2',
+      match: ['linkedin news'],
+      exact: true,
+      closest: 'aside, section',
+    },
   },
   {
     key: 'hideBadgeCounts',

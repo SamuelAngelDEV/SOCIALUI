@@ -11,6 +11,9 @@ export type Feature = {
   default: boolean;
   /** Small grey subtitle for rows that need a caveat. */
   note?: string;
+  /** If set, this row nests (indented) under its parent and only shows when the
+   *  parent toggle is on. */
+  parent?: string;
 };
 
 /**
@@ -26,9 +29,22 @@ export const FEATURES: Partial<Record<PlatformId, Feature[]>> = {
       key: 'hideBadges',
       label: 'Hide Notification Badges',
       default: true,
-      note: 'Removes the red dots and counts.',
+      note: 'Removes red dots and counts. Icons stay clickable.',
+    },
+    {
+      key: 'hideDmBadges',
+      label: 'Hide DM Badges',
+      parent: 'hideBadges',
+      default: true,
+      note: 'The unread count on the messages icon.',
     },
     { key: 'blockStories', label: 'Block Stories', default: false },
+    {
+      key: 'hideSearchBar',
+      label: 'Hide Search',
+      default: false,
+      note: 'Removes the search bar and search icon.',
+    },
     { key: 'blockSuggested', label: 'Block Suggested Posts', default: false },
     { key: 'blockSponsored', label: 'Block Sponsored Posts', default: false },
     { key: 'hideLikeCounts', label: 'Hide Like Counts', default: false },
@@ -41,7 +57,7 @@ export const FEATURES: Partial<Record<PlatformId, Feature[]>> = {
       key: 'limitFeed',
       label: 'Limit Feed',
       default: true,
-      note: "Stops the feed after a set number of posts, then shows 'You're all caught up'.",
+      note: "Stops the feed after a set number of posts.",
     },
     {
       key: 'dmsOnly',
@@ -88,7 +104,7 @@ export const FEATURES: Partial<Record<PlatformId, Feature[]>> = {
       key: 'limitFeed',
       label: 'Limit Feed',
       default: true,
-      note: "Stops the timeline after a set number of posts, then shows 'You're all caught up'.",
+      note: "Stops the timeline after a set number of posts.",
     },
     {
       key: 'dmsOnly',
@@ -123,7 +139,7 @@ export const FEATURES: Partial<Record<PlatformId, Feature[]>> = {
       key: 'limitFeed',
       label: 'Limit Feed',
       default: true,
-      note: "Stops the feed after a set number of posts, then shows 'You're all caught up'.",
+      note: "Stops the feed after a set number of posts.",
     },
     { key: 'grayscale', label: 'Grayscale', default: false },
   ],
@@ -139,7 +155,7 @@ export const FEATURES: Partial<Record<PlatformId, Feature[]>> = {
       key: 'limitFeed',
       label: 'Limit Feed',
       default: true,
-      note: "Stops the feed after a set number of posts, then shows 'You're all caught up'.",
+      note: "Stops the feed after a set number of posts.",
     },
     { key: 'grayscale', label: 'Grayscale', default: false },
   ],
@@ -157,7 +173,7 @@ export const FEATURES: Partial<Record<PlatformId, Feature[]>> = {
       key: 'limitFeed',
       label: 'Limit Feed',
       default: true,
-      note: "Stops the feed after a set number of posts, then shows 'You're all caught up'.",
+      note: "Stops the feed after a set number of posts.",
     },
     {
       key: 'dmsOnly',

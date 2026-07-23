@@ -4,12 +4,17 @@ import { buildScript, Rule, RouteGuard } from './engine';
  * Rule keys match `FEATURES.twitter`. X's web app uses data-testid attributes
  * extensively — the most stable anchors of any platform we wrap.
  */
-const RULES: Rule[] = [
+export const RULES: Rule[] = [
   {
     key: 'hideForYou',
     // The "For You" tab in the home timeline switcher. Text pass, since the two
     // tabs are identical markup apart from the label.
-    textHide: { match: ['for you'], ancestor: 'div[role="presentation"]' },
+    textHide: {
+      probe: 'span',
+      match: ['for you'],
+      exact: true,
+      closest: 'div[role="presentation"]',
+    },
   },
   {
     key: 'blockTrending',
@@ -23,7 +28,12 @@ const RULES: Rule[] = [
   {
     key: 'blockWhoToFollow',
     css: ['[data-testid="UserCell"]'],
-    textHide: { match: ['who to follow'], ancestor: 'aside, section' },
+    textHide: {
+      probe: 'span, h2',
+      match: ['who to follow'],
+      exact: true,
+      closest: 'aside, section',
+    },
   },
   {
     key: 'hideMetrics',
@@ -38,7 +48,14 @@ const RULES: Rule[] = [
   },
   {
     key: 'blockPromoted',
-    textHide: { match: ['promoted', ' ad'], ancestor: 'article[data-testid="tweet"]' },
+    // Exact match: the label span is exactly "Promoted"/"Ad". Substring matching
+    // here would hide any tweet whose text contains "ad".
+    textHide: {
+      probe: 'span',
+      match: ['promoted', 'ad'],
+      exact: true,
+      closest: 'article[data-testid="tweet"]',
+    },
   },
   {
     key: 'blockGrok',

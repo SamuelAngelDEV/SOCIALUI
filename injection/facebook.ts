@@ -4,7 +4,7 @@ import { buildScript, Rule, RouteGuard } from './engine';
  * Rule keys match `FEATURES.facebook`. Targets m.facebook.com. Meta obfuscates
  * classes, so anchor on hrefs and aria-labels only.
  */
-const RULES: Rule[] = [
+export const RULES: Rule[] = [
   {
     key: 'blockReels',
     css: [
@@ -12,7 +12,12 @@ const RULES: Rule[] = [
       'a[href*="/reel/"]',
       '[aria-label="Reels"]',
     ],
-    textHide: { match: ['reels'], ancestor: '[data-mcomponent="MContainer"][data-type="container"]' },
+    textHide: {
+      probe: 'span',
+      match: ['reels'],
+      exact: true,
+      closest: '[data-mcomponent="MContainer"][data-type="container"]',
+    },
   },
   {
     key: 'blockStories',

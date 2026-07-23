@@ -7,6 +7,8 @@ import { Typography } from '@/constants/typography';
 type Props = {
   label: string;
   note?: string;
+  /** Data-driven savings line, rendered in the accent color under the note. */
+  insight?: string;
   /** Right accessory: a switch, an "Always On" label, a chevron, or custom. */
   accessory: 'switch' | 'alwaysOn' | 'chevron' | 'none';
   value?: boolean;
@@ -19,6 +21,7 @@ type Props = {
 export function SettingsRow({
   label,
   note,
+  insight,
   accessory,
   value,
   onValueChange,
@@ -32,6 +35,7 @@ export function SettingsRow({
       <View style={styles.textCol}>
         <Text style={[Typography.body, disabled && styles.disabledText]}>{label}</Text>
         {note ? <Text style={styles.note}>{note}</Text> : null}
+        {insight ? <Text style={styles.insight}>{insight}</Text> : null}
       </View>
 
       {accessory === 'switch' && (
@@ -80,6 +84,11 @@ const styles = StyleSheet.create({
   note: {
     ...Typography.callout,
     color: Colors.textTertiary,
+    marginTop: 2,
+  },
+  insight: {
+    ...Typography.callout,
+    color: Colors.primary,
     marginTop: 2,
   },
   disabledText: {

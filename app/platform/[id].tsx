@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -7,8 +7,16 @@ import { RotateCw, X } from 'lucide-react-native';
 import { PLATFORMS, PlatformId } from '@/constants/platforms';
 import { buildInjection } from '@/injection';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useStatsStore } from '@/store/statsStore';
+import { Category, dayKey, mapPathToCategory } from '@/utils/stats';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
+import { LimitReachedOverlay } from '@/components/LimitReachedOverlay';
+import { SessionSummaryOverlay } from '@/components/SessionSummaryOverlay';
+
+const LIMIT_EXTEND_BY = 10;
+// Sessions shorter than this close without a summary — not worth interrupting for.
+const SUMMARY_MIN_MS = 5000;
 
 const LOAD_TIMEOUT_MS = 10000;
 
@@ -22,6 +30,8 @@ export default function PlatformView() {
   const enabled = useSettingsStore((s) => s.platformEnabled[id]);
   const settings = useSettingsStore((s) => s.platformSettings[id]);
   const feedLimit = useSettingsStore((s) => s.feedLimits[id]);
+  const master = useSettingsStore((s) => s.masterSettings);
+  const todayStats = useStatsStore((s) => s.days[dayKey()]);
 
   const webRef = useRef<WebView>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -29,6 +39,55 @@ export default function PlatformView() {
   const [errored, setErrored] = useState(false);
   // Bumping this key remounts the WebView — the reliable way to fully retry.
   const [reloadKey, setReloadKey] = useState(0);
+  // The Screen-Time-style wall. sessionLimit is this visit's cap; extensions are
+  // deliberately not persisted — next visit starts back at the saved slider value.
+  const [wallVisible, setWallVisible] = useState(false);
+  const sessionLimitRef = useRef<number | null>(null);
+
+  // ---- Local time tracking (never leaves the device) ----
+  const addTime = useStatsStore((s) => s.addTime);
+  const catRef = useRef<Category>('feed');
+  const catStartRef = useRef<number>(Date.now());
+  const sessionAggRef = useRef<Partial<Record<Category, number>>>({});
+  const pausedRef = useRef(false);
+  const [summary, setSummary] = useState<{
+    total: number;
+    perCategory: Partial<Record<Category, number>>;
+  } | null>(null);
+
+  // Close out the running category segment into both the session aggregate and
+  // the persistent per-day stats.
+  const commitSegment = () => {
+    const now = Date.now();
+    const ms = now - catStartRef.current;
+    catStartRef.current = now;
+    if (pausedRef.current || ms < 500 || !id) return;
+    const cat = catRef.current;
+    sessionAggRef.current[cat] = (sessionAggRef.current[cat] ?? 0) + ms;
+    addTime(id, cat, ms);
+  };
+
+  // Don't count time while the app is backgrounded.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        pausedRef.current = false;
+        catStartRef.current = Date.now();
+      } else {
+        commitSegment();
+        pausedRef.current = true;
+      }
+    });
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // If the screen unmounts by any route other than the close button, still log.
+  useEffect(() => {
+    catStartRef.current = Date.now();
+    return () => commitSegment();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   const clearLoadTimeout = () => {
     if (timeoutRef.current) {
@@ -53,7 +112,49 @@ export default function PlatformView() {
   const retry = () => {
     setErrored(false);
     setLoading(true);
+    setWallVisible(false);
+    sessionLimitRef.current = null;
     setReloadKey((k) => k + 1);
+  };
+
+  const onWebMessage = (event: { nativeEvent: { data: string } }) => {
+    // The page itself can also call postMessage — only act on our own payloads.
+    try {
+      const msg = JSON.parse(event.nativeEvent.data);
+      if (!msg) return;
+      if (msg.type === 'quiet-limit-reached') {
+        setWallVisible(true);
+      } else if (msg.type === 'quiet-nav' && typeof msg.path === 'string' && id) {
+        const nextCat = mapPathToCategory(id, msg.path);
+        if (nextCat !== catRef.current) {
+          commitSegment();
+          catRef.current = nextCat;
+        }
+      }
+    } catch {
+      // Not our message; ignore.
+    }
+  };
+
+  const closePlatform = () => {
+    commitSegment();
+    const agg = sessionAggRef.current;
+    const total = Object.values(agg).reduce((a, b) => a + (b ?? 0), 0);
+    if (total < SUMMARY_MIN_MS) {
+      router.back();
+      return;
+    }
+    setSummary({ total, perCategory: { ...agg } });
+  };
+
+  const extendLimit = () => {
+    const base = sessionLimitRef.current ?? feedLimit ?? 10;
+    const next = base + LIMIT_EXTEND_BY;
+    sessionLimitRef.current = next;
+    webRef.current?.injectJavaScript(
+      `window.__quietSetLimit && window.__quietSetLimit(${next}); true;`
+    );
+    setWallVisible(false);
   };
 
   if (!config) {
@@ -65,7 +166,7 @@ export default function PlatformView() {
   }
 
   const injectedJS =
-    hydrated && enabled ? buildInjection(id, settings ?? {}, feedLimit ?? 10) : 'true;';
+    hydrated && enabled ? buildInjection(id, settings ?? {}, feedLimit ?? 10, master) : 'true;';
   const wantsPiP = id === 'youtube' && !!settings?.pictureInPicture;
 
   return (
@@ -113,6 +214,7 @@ export default function PlatformView() {
             // leaving a blank/stuck view — reload when that happens.
             onContentProcessDidTerminate={retry}
             onRenderProcessGone={retry}
+            onMessage={onWebMessage}
             style={styles.webview}
           />
         )}
@@ -138,10 +240,29 @@ export default function PlatformView() {
             </Pressable>
           </View>
         )}
+
+        {wallVisible && !summary && (
+          <LimitReachedOverlay
+            platformName={config.name}
+            limit={sessionLimitRef.current ?? feedLimit ?? 10}
+            onDone={closePlatform}
+            onExtend={extendLimit}
+          />
+        )}
+
+        {summary && (
+          <SessionSummaryOverlay
+            platformName={config.name}
+            sessionMs={summary.total}
+            perCategory={summary.perCategory}
+            todayTotalMs={todayStats?.total ?? summary.total}
+            onDone={() => router.back()}
+          />
+        )}
       </View>
 
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom }]}>
-        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.closeButton}>
+        <Pressable onPress={closePlatform} hitSlop={16} style={styles.closeButton}>
           <X size={22} color={Colors.textPrimary} />
         </Pressable>
       </View>

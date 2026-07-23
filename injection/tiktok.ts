@@ -4,7 +4,7 @@ import { buildScript, Rule, RouteGuard } from './engine';
  * Rule keys match `FEATURES.tiktok`. TikTok's web DOM uses data-e2e attributes,
  * which are its automation hooks and reasonably stable.
  */
-const RULES: Rule[] = [
+export const RULES: Rule[] = [
   {
     key: 'blockLive',
     css: [

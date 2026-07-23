@@ -6,6 +6,8 @@ import { Typography } from '@/constants/typography';
 import { PlatformConfig } from '@/constants/platforms';
 import { FEATURES, COMING_SOON } from '@/constants/features';
 import { useSettingsStore } from '@/store/settingsStore';
+import { useStatsStore } from '@/store/statsStore';
+import { getSavingsLine } from '@/utils/savings';
 import { PlatformLogo } from '@/components/PlatformLogo';
 import { SettingsRow } from './SettingsRow';
 import { FeedLimitSlider } from './FeedLimitSlider';
@@ -21,6 +23,9 @@ export function PlatformSection({ platform }: Props) {
   const settings = useSettingsStore((s) => s.platformSettings[platform.id]);
   const setToggle = useSettingsStore((s) => s.setToggle);
   const setPlatformEnabled = useSettingsStore((s) => s.setPlatformEnabled);
+  const resetPlatform = useSettingsStore((s) => s.resetPlatform);
+  const enabledAt = useSettingsStore((s) => s.toggleEnabledAt[platform.id]);
+  const days = useStatsStore((s) => s.days);
 
   const features = FEATURES[platform.id] ?? [];
   const comingSoon = COMING_SOON.includes(platform.id);
@@ -55,24 +60,63 @@ export function PlatformSection({ platform }: Props) {
           {comingSoon ? (
             <SettingsRow label="Coming soon" accessory="none" disabled />
           ) : (
-            features.map((f) => (
-              <View key={f.key}>
-                <View style={styles.separator} />
-                <SettingsRow
-                  label={f.label}
-                  note={f.note}
-                  accessory={f.alwaysOn ? 'alwaysOn' : 'switch'}
-                  value={f.alwaysOn ? true : !!settings?.[f.key]}
-                  onValueChange={
-                    f.alwaysOn ? undefined : (v) => setToggle(platform.id, f.key, v)
-                  }
-                  disabled={!enabled && !f.alwaysOn}
-                />
-                {f.key === 'limitFeed' && enabled && settings?.limitFeed && (
-                  <FeedLimitSlider platform={platform.id} />
-                )}
-              </View>
-            ))
+            features
+              .filter((f) => !f.parent)
+              .map((f) => {
+                const children = features.filter(
+                  (c) => c.parent === f.key && enabled && !!settings?.[f.key]
+                );
+                return (
+                  <View key={f.key}>
+                    <View style={styles.separator} />
+                    <SettingsRow
+                      label={f.label}
+                      note={f.note}
+                      insight={
+                        enabled
+                          ? getSavingsLine(
+                              platform.id,
+                              f.key,
+                              f.alwaysOn ? true : !!settings?.[f.key],
+                              days,
+                              enabledAt?.[f.key]
+                            ) ?? undefined
+                          : undefined
+                      }
+                      accessory={f.alwaysOn ? 'alwaysOn' : 'switch'}
+                      value={f.alwaysOn ? true : !!settings?.[f.key]}
+                      onValueChange={
+                        f.alwaysOn ? undefined : (v) => setToggle(platform.id, f.key, v)
+                      }
+                      disabled={!enabled && !f.alwaysOn}
+                    />
+                    {f.key === 'limitFeed' && enabled && settings?.limitFeed && (
+                      <FeedLimitSlider platform={platform.id} />
+                    )}
+                    {children.map((c) => (
+                      <View key={c.key} style={styles.childRow}>
+                        <SettingsRow
+                          label={c.label}
+                          note={c.note}
+                          accessory="switch"
+                          value={!!settings?.[c.key]}
+                          onValueChange={(v) => setToggle(platform.id, c.key, v)}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                );
+              })
+          )}
+          {!comingSoon && (
+            <>
+              <View style={styles.separator} />
+              <SettingsRow
+                label="Reset to Defaults"
+                accessory="none"
+                onPress={() => resetPlatform(platform.id)}
+              />
+            </>
           )}
         </View>
       )}
@@ -112,5 +156,9 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: Colors.separator,
     marginLeft: 16,
+  },
+  childRow: {
+    paddingLeft: 16,
+    backgroundColor: Colors.groupedBackground,
   },
 });

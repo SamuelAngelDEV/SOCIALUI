@@ -8,19 +8,39 @@ import {
   FEED_LIMIT_MIN,
   FEED_LIMIT_MAX,
 } from '@/constants/features';
+import { dayKey } from '@/utils/stats';
 
 type PlatformSettings = Record<string, boolean>;
+
+/** Cross-platform overrides — applied on top of per-platform settings. */
+export type MasterSettings = {
+  killAllMetrics: boolean;
+  killAllBadges: boolean;
+  messagesOnly: boolean;
+  grayscaleEverything: boolean;
+};
+
+const MASTER_DEFAULTS: MasterSettings = {
+  killAllMetrics: false,
+  killAllBadges: false,
+  messagesOnly: false,
+  grayscaleEverything: false,
+};
 
 type SettingsState = {
   platformEnabled: Record<PlatformId, boolean>;
   platformSettings: Record<PlatformId, PlatformSettings>;
   /** How many posts before "Limit Feed" stops the feed, per platform. */
   feedLimits: Record<PlatformId, number>;
+  masterSettings: MasterSettings;
+  /** Day a toggle was last switched ON — powers "since enabling" savings lines. */
+  toggleEnabledAt: Partial<Record<PlatformId, Record<string, string>>>;
   _hasHydrated: boolean;
   setHasHydrated: (value: boolean) => void;
   setToggle: (platform: PlatformId, key: string, value: boolean) => void;
   setPlatformEnabled: (platform: PlatformId, value: boolean) => void;
   setFeedLimit: (platform: PlatformId, value: number) => void;
+  setMasterToggle: (key: keyof MasterSettings, value: boolean) => void;
   resetPlatform: (platform: PlatformId) => void;
 };
 
@@ -47,16 +67,29 @@ export const useSettingsStore = create<SettingsState>()(
       platformEnabled: initial.enabled,
       platformSettings: initial.settings,
       feedLimits: initial.limits,
+      masterSettings: { ...MASTER_DEFAULTS },
+      toggleEnabledAt: {},
       _hasHydrated: false,
       setHasHydrated: (value) => set({ _hasHydrated: value }),
 
-      setToggle: (platform, key, value) =>
+      setMasterToggle: (key, value) =>
         set((state) => ({
-          platformSettings: {
-            ...state.platformSettings,
-            [platform]: { ...state.platformSettings[platform], [key]: value },
-          },
+          masterSettings: { ...state.masterSettings, [key]: value },
         })),
+
+      setToggle: (platform, key, value) =>
+        set((state) => {
+          const platEnabled = { ...(state.toggleEnabledAt[platform] ?? {}) };
+          if (value) platEnabled[key] = dayKey();
+          else delete platEnabled[key];
+          return {
+            platformSettings: {
+              ...state.platformSettings,
+              [platform]: { ...state.platformSettings[platform], [key]: value },
+            },
+            toggleEnabledAt: { ...state.toggleEnabledAt, [platform]: platEnabled },
+          };
+        }),
 
       setPlatformEnabled: (platform, value) =>
         set((state) => ({
@@ -74,6 +107,7 @@ export const useSettingsStore = create<SettingsState>()(
             ...state.platformSettings,
             [platform]: defaultSettingsFor(platform),
           },
+          feedLimits: { ...state.feedLimits, [platform]: DEFAULT_FEED_LIMIT },
         })),
     }),
     {
@@ -84,6 +118,8 @@ export const useSettingsStore = create<SettingsState>()(
         platformEnabled: state.platformEnabled,
         platformSettings: state.platformSettings,
         feedLimits: state.feedLimits,
+        masterSettings: state.masterSettings,
+        toggleEnabledAt: state.toggleEnabledAt,
       }),
       // Merge stored values over fresh defaults so features added in a later
       // release appear with their default rather than as `undefined`.
@@ -105,6 +141,8 @@ export const useSettingsStore = create<SettingsState>()(
           platformEnabled: { ...current.platformEnabled, ...(saved.platformEnabled ?? {}) },
           platformSettings: mergedSettings,
           feedLimits: mergedLimits,
+          masterSettings: { ...MASTER_DEFAULTS, ...(saved.masterSettings ?? {}) },
+          toggleEnabledAt: saved.toggleEnabledAt ?? {},
         };
       },
       onRehydrateStorage: () => (state) => {

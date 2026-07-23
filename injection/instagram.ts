@@ -5,7 +5,7 @@ import { buildScript, Rule, RouteGuard } from './engine';
  * selectors per target — Instagram obfuscates class names, so anchor on
  * aria-label / href / data-* only. If one breaks, another catches.
  */
-const RULES: Rule[] = [
+export const RULES: Rule[] = [
   {
     key: 'blockReels',
     // Only the Reels tab/nav — NOT whole posts. Hiding an <article> by its inner
@@ -22,11 +22,22 @@ const RULES: Rule[] = [
   },
   {
     key: 'blockExplore',
+    // Search lives under /explore/search/ — exclude it, or blocking Explore
+    // takes the search bar with it. The route guard has the same carve-out.
     css: [
       'a[href="/explore/"]',
-      'a[href^="/explore/"]',
+      'a[href^="/explore/"]:not([href^="/explore/search"])',
       'svg[aria-label="Explore"]',
       'a:has(svg[aria-label="Explore"])',
+    ],
+  },
+  {
+    key: 'hideSearchBar',
+    css: [
+      'a[href^="/explore/search"]',
+      'svg[aria-label="Search"]',
+      'a:has(svg[aria-label="Search"])',
+      'input[placeholder="Search"]',
     ],
   },
   {
@@ -34,17 +45,56 @@ const RULES: Rule[] = [
     css: ['div[role="menu"]:has(canvas)', 'ul:has(> li canvas)'],
   },
   {
+    // Belt-and-suspenders CSS for badge overlays with stable aria labels. These
+    // target the RED BADGE text/bubble only — never the icon or link — so the
+    // activity and messages buttons stay visible and tappable. The scanner in
+    // the engine is the robust fallback for badges without aria labels.
+    key: 'hideBadges',
+    css: [
+      'span[aria-label*="new notification" i]',
+      'span[aria-label*="unread notification" i]',
+      '[aria-label*="new activity" i]',
+    ],
+  },
+  {
+    key: 'hideDmBadges',
+    css: [
+      'a[href^="/direct/"] span[aria-label*="unread" i]',
+      'a[href^="/direct/"] span[aria-label*="new message" i]',
+      '[aria-label*="unread message" i]',
+    ],
+  },
+  {
     key: 'blockSuggested',
-    // "Suggested for you" / "Suggested posts" headers sit above suggested content.
-    textHide: { match: ['suggested for you', 'suggested posts'], ancestor: 'article, section' },
+    // The header label is EXACTLY this text; exact match so a caption that merely
+    // mentions "suggested for you" can't hide a real post.
+    textHide: {
+      probe: 'span, h2, h3',
+      match: ['suggested for you', 'suggested posts', 'suggested reels'],
+      exact: true,
+      closest: 'article',
+    },
   },
   {
     key: 'blockSponsored',
-    textHide: { match: ['sponsored'], ancestor: 'article' },
+    textHide: {
+      probe: 'span, a',
+      match: ['sponsored', 'paid partnership'],
+      exact: true,
+      closest: 'article',
+    },
   },
   {
     key: 'hideLikeCounts',
+    // The liked_by href is gone from much of the current DOM, so the reliable
+    // hook is the count text itself: exactly "169 likes" / "Liked by x and others".
     css: ['section a[href*="/liked_by/"]', 'a[href$="/liked_by/"]'],
+    textHide: {
+      probe: 'span, a, div[role="button"]',
+      match: ['^liked by .{1,80}$', '^[\\d.,]+ ?[km]? ?likes?$', '^[\\d.,]+ ?[km]? ?others$'],
+      regex: true,
+      closest: 'span, a, div[role="button"]',
+    },
   },
   {
     key: 'hideFollowerCounts',
@@ -54,6 +104,12 @@ const RULES: Rule[] = [
       'li:has(a[href$="/followers/"])',
       'li:has(a[href$="/following/"])',
     ],
+    textHide: {
+      probe: 'span, a',
+      match: ['^[\\d.,]+ ?[km]? ?followers$', '^[\\d.,]+ ?[km]? ?following$'],
+      regex: true,
+      closest: 'li',
+    },
   },
   // Per-element customization. Hide both the icon and its button wrapper.
   {
@@ -127,5 +183,7 @@ export function buildInstagramScript(
     limitRequireDescendant: 'time', // skip skeleton posts (no timestamp yet)
     limitPath: '/', // cap only the home feed, never post details or profiles
     badgeKey: 'hideBadges',
+    dmBadgeKey: 'hideDmBadges',
+    dmBadgeSelector: 'a[href^="/direct/"], a[href="/direct/inbox/"]',
   });
 }
