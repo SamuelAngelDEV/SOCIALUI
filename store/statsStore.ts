@@ -8,7 +8,13 @@ export type DayStats = {
   /** All values are milliseconds. */
   total: number;
   platforms: Partial<Record<PlatformId, number>>;
+  /** Global activity rollup, kept for totals and for pre-upgrade data. */
   categories: Partial<Record<Category, number>>;
+  /**
+   * Activity split PER platform — what makes "Instagram → Feed 20m" possible.
+   * Optional because days recorded before this existed won't have it.
+   */
+  byPlatform?: Partial<Record<PlatformId, Partial<Record<Category, number>>>>;
 };
 
 type StatsState = {
@@ -43,10 +49,15 @@ export const useStatsStore = create<StatsState>()(
         set((state) => {
           const key = dayKey();
           const day = state.days[key] ?? { total: 0, platforms: {}, categories: {} };
+          const platCats = day.byPlatform?.[platform] ?? {};
           const next: DayStats = {
             total: day.total + ms,
             platforms: { ...day.platforms, [platform]: (day.platforms[platform] ?? 0) + ms },
             categories: { ...day.categories, [category]: (day.categories[category] ?? 0) + ms },
+            byPlatform: {
+              ...day.byPlatform,
+              [platform]: { ...platCats, [category]: (platCats[category] ?? 0) + ms },
+            },
           };
           return { days: prune({ ...state.days, [key]: next }) };
         });

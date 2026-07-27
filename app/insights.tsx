@@ -5,6 +5,7 @@ import { ChevronLeft } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
 import { PLATFORMS, PlatformId } from '@/constants/platforms';
+import { PlatformLogo } from '@/components/PlatformLogo';
 import { useStatsStore, DayStats } from '@/store/statsStore';
 import {
   Category,
@@ -19,12 +20,16 @@ type WeekAgg = {
   perDay: number[]; // Mon..Sun, ms
   platforms: Partial<Record<PlatformId, number>>;
   categories: Partial<Record<Category, number>>;
+  /** Activity split per platform — drives the per-app sections. */
+  byPlatform: Partial<Record<PlatformId, Partial<Record<Category, number>>>>;
   daysWithData: number;
 };
 
 function aggregateWeek(days: Record<string, DayStats>, monKey: string): WeekAgg {
   const keys = weekDays(monKey);
-  const agg: WeekAgg = { total: 0, perDay: [], platforms: {}, categories: {}, daysWithData: 0 };
+  const agg: WeekAgg = {
+    total: 0, perDay: [], platforms: {}, categories: {}, byPlatform: {}, daysWithData: 0,
+  };
   for (const key of keys) {
     const day = days[key];
     agg.perDay.push(day?.total ?? 0);
@@ -36,6 +41,13 @@ function aggregateWeek(days: Record<string, DayStats>, monKey: string): WeekAgg 
     }
     for (const [c, ms] of Object.entries(day.categories)) {
       agg.categories[c as Category] = (agg.categories[c as Category] ?? 0) + (ms ?? 0);
+    }
+    for (const [p, cats] of Object.entries(day.byPlatform ?? {})) {
+      const pid = p as PlatformId;
+      const into = agg.byPlatform[pid] ?? (agg.byPlatform[pid] = {});
+      for (const [c, ms] of Object.entries(cats ?? {})) {
+        into[c as Category] = (into[c as Category] ?? 0) + (ms ?? 0);
+      }
     }
   }
   return agg;
@@ -50,22 +62,28 @@ function buildFeedback(week: WeekAgg, prev: WeekAgg): string[] {
   if (platforms.length) {
     const [pid, ms] = platforms[0];
     const share = Math.round(((ms ?? 0) / week.total) * 100);
-    lines.push(
-      `${PLATFORMS[pid as PlatformId]?.name ?? pid} took the most of your time — ` +
-      `${formatDuration(ms ?? 0)} (${share}% of the week).`
-    );
+    const name = PLATFORMS[pid as PlatformId]?.name ?? pid;
+    lines.push(`${name} took the most of your time — ${formatDuration(ms ?? 0)} (${share}% of the week).`);
+
+    // Now that activity is tracked per app, name the specific driver.
+    const topCats = Object.entries(week.byPlatform[pid as PlatformId] ?? {})
+      .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0));
+    if (topCats.length) {
+      const [cat, catMs] = topCats[0];
+      lines.push(
+        `On ${name}, most of it was ${CATEGORY_LABELS[cat as Category].toLowerCase()} ` +
+        `(${formatDuration(catMs ?? 0)}).`
+      );
+    }
   }
 
-  const cats = Object.entries(week.categories).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0));
-  if (cats.length) {
-    const [cat, ms] = cats[0];
-    lines.push(`Most of that went to ${CATEGORY_LABELS[cat as Category].toLowerCase()} (${formatDuration(ms ?? 0)}).`);
-    const msgs = week.categories.messages ?? 0;
-    if (msgs > 0 && cat !== 'messages') {
-      const ratio = Math.round(((ms ?? 0) / Math.max(msgs, 1)) * 10) / 10;
-      if (ratio >= 2) {
-        lines.push(`You spent ${ratio}x more time browsing than talking to people.`);
-      }
+  const browsing = (week.categories.feed ?? 0) + (week.categories.reels ?? 0) +
+    (week.categories.video ?? 0);
+  const msgs = week.categories.messages ?? 0;
+  if (msgs > 0 && browsing > 0) {
+    const ratio = Math.round((browsing / msgs) * 10) / 10;
+    if (ratio >= 2) {
+      lines.push(`Across all apps you spent ${ratio}x more time browsing than talking to people.`);
     }
   }
 
@@ -111,21 +129,53 @@ function WeekChart({ perDay }: { perDay: number[] }) {
   );
 }
 
-function BreakdownRows({ entries, total }: {
-  entries: [string, number][];
-  total: number;
+/** One app's card: its logo, its total, and its own activity split. */
+function PlatformCard({ platform, totalMs, cats, weekTotal }: {
+  platform: PlatformId;
+  totalMs: number;
+  cats: Partial<Record<Category, number>>;
+  weekTotal: number;
 }) {
+  const rows = (Object.entries(cats) as [Category, number][])
+    .filter(([, ms]) => ms > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const share = Math.round((totalMs / Math.max(weekTotal, 1)) * 100);
+
   return (
     <View style={styles.card}>
-      {entries.map(([label, ms], i) => (
-        <View key={label} style={[styles.breakRow, i > 0 && styles.breakRowBorder]}>
-          <Text style={[Typography.body, styles.breakLabel]}>{label}</Text>
-          <View style={styles.breakBarWell}>
-            <View style={[styles.breakBar, { width: `${Math.max((ms / Math.max(total, 1)) * 100, 2)}%` }]} />
-          </View>
-          <Text style={[Typography.callout, styles.breakValue]}>{formatDuration(ms)}</Text>
+      <View style={styles.platHeader}>
+        <PlatformLogo platform={platform} size={28} />
+        <Text style={[Typography.headline, styles.platName]}>
+          {PLATFORMS[platform]?.name ?? platform}
+        </Text>
+        <View style={styles.platTotals}>
+          <Text style={Typography.headline}>{formatDuration(totalMs)}</Text>
+          <Text style={styles.platShare}>{share}% of week</Text>
         </View>
-      ))}
+      </View>
+
+      {rows.length > 0 ? (
+        rows.map(([cat, ms]) => (
+          <View key={cat} style={[styles.breakRow, styles.breakRowBorder]}>
+            <Text style={[Typography.body, styles.breakLabel]}>{CATEGORY_LABELS[cat]}</Text>
+            <View style={styles.breakBarWell}>
+              <View
+                style={[
+                  styles.breakBar,
+                  { width: `${Math.max((ms / Math.max(totalMs, 1)) * 100, 2)}%` },
+                ]}
+              />
+            </View>
+            <Text style={[Typography.callout, styles.breakValue]}>{formatDuration(ms)}</Text>
+          </View>
+        ))
+      ) : (
+        <View style={[styles.breakRow, styles.breakRowBorder]}>
+          <Text style={[Typography.callout, { color: Colors.textTertiary }]}>
+            No activity detail recorded yet.
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -144,12 +194,10 @@ export default function Insights() {
   const prev = aggregateWeek(days, prevMon);
   const feedback = buildFeedback(week, prev);
 
-  const platformEntries = (Object.entries(week.platforms) as [PlatformId, number][])
-    .sort((a, b) => b[1] - a[1])
-    .map(([pid, ms]) => [PLATFORMS[pid]?.name ?? pid, ms] as [string, number]);
-  const categoryEntries = (Object.entries(week.categories) as [Category, number][])
-    .sort((a, b) => b[1] - a[1])
-    .map(([cat, ms]) => [CATEGORY_LABELS[cat], ms] as [string, number]);
+  // Apps that actually saw use, busiest first.
+  const activePlatforms = (Object.entries(week.platforms) as [PlatformId, number][])
+    .filter(([, ms]) => ms > 0)
+    .sort((a, b) => b[1] - a[1]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
@@ -169,7 +217,7 @@ export default function Insights() {
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.sectionTitle}>THIS WEEK</Text>
+        <Text style={styles.sectionTitle}>TOTAL — ALL APPS</Text>
         <View style={styles.card}>
           <Text style={[Typography.largeTitle, styles.total]}>
             {formatDuration(week.total)}
@@ -177,21 +225,22 @@ export default function Insights() {
           <WeekChart perDay={week.perDay} />
         </View>
 
-        {platformEntries.length > 0 && (
+        {activePlatforms.length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>BY PLATFORM</Text>
-            <BreakdownRows entries={platformEntries} total={week.total} />
+            <Text style={styles.sectionTitle}>BY APP</Text>
+            {activePlatforms.map(([pid, ms]) => (
+              <PlatformCard
+                key={pid}
+                platform={pid}
+                totalMs={ms}
+                cats={week.byPlatform[pid] ?? {}}
+                weekTotal={week.total}
+              />
+            ))}
           </>
         )}
 
-        {categoryEntries.length > 0 && (
-          <>
-            <Text style={styles.sectionTitle}>BY ACTIVITY</Text>
-            <BreakdownRows entries={categoryEntries} total={week.total} />
-          </>
-        )}
-
-        <Text style={styles.sectionTitle}>WEEKLY NOTES</Text>
+        <Text style={styles.sectionTitle}>SUMMARY</Text>
         <View style={styles.card}>
           {feedback.map((line, i) => (
             <Text
@@ -277,6 +326,22 @@ const styles = StyleSheet.create({
   chartDay: {
     ...Typography.caption,
     marginTop: 6,
+  },
+  platHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 12,
+    gap: 10,
+  },
+  platName: {
+    flex: 1,
+  },
+  platTotals: {
+    alignItems: 'flex-end',
+  },
+  platShare: {
+    ...Typography.callout,
+    color: Colors.textTertiary,
   },
   breakRow: {
     flexDirection: 'row',

@@ -60,7 +60,12 @@ function sumCategories(
     const day = days[k];
     if (!day || !(day.platforms[platform] ?? 0)) continue;
     daysWithData++;
-    for (const c of cats) ms += day.categories[c] ?? 0;
+    // Use this platform's own activity split. Days recorded before byPlatform
+    // existed fall back to the global rollup (imprecise, but better than zero).
+    const platCats = day.byPlatform?.[platform];
+    for (const c of cats) {
+      ms += platCats ? platCats[c] ?? 0 : day.categories[c] ?? 0;
+    }
   }
   return { ms, daysWithData };
 }
