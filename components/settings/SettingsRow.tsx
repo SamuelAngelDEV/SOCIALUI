@@ -5,10 +5,10 @@ import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
 import type { MetricVisibility } from '@/constants/features';
 
-const METRIC_OPTIONS: { label: string; value: MetricVisibility }[] = [
-  { label: 'Show', value: 'visible' },
-  { label: 'Count', value: 'hidden-number' },
-  { label: 'All', value: 'hidden-both' },
+const METRIC_OPTIONS: { label: string; value: MetricVisibility; hint: string }[] = [
+  { label: 'Off', value: 'visible', hint: 'Everything is visible.' },
+  { label: 'Hide #', value: 'hidden-number', hint: 'Numbers hidden. Buttons still work.' },
+  { label: 'Hide All', value: 'hidden-both', hint: 'Numbers and buttons both hidden.' },
 ];
 
 type Props = {
@@ -58,28 +58,35 @@ export function SettingsRow({
         />
       )}
       {accessory === 'metric' && (
-        <View style={styles.segmentedWrap}>
-          {METRIC_OPTIONS.map((opt) => {
-            const active = metricValue === opt.value;
-            return (
-              <Pressable
-                key={opt.value}
-                style={[styles.segment, active && styles.segmentActive]}
-                onPress={() => onMetricChange?.(opt.value)}
-                disabled={disabled}
-              >
-                <Text
-                  style={[
-                    styles.segmentText,
-                    active && styles.segmentTextActive,
-                    disabled && styles.disabledText,
-                  ]}
+        <View style={styles.metricCol}>
+          <View style={styles.segmentedWrap}>
+            {METRIC_OPTIONS.map((opt) => {
+              const active = metricValue === opt.value;
+              return (
+                <Pressable
+                  key={opt.value}
+                  style={[styles.segment, active && styles.segmentActive]}
+                  onPress={() => onMetricChange?.(opt.value)}
+                  disabled={disabled}
                 >
-                  {opt.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      active && styles.segmentTextActive,
+                      disabled && styles.disabledText,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {metricValue && metricValue !== 'visible' && (
+            <Text style={styles.metricHint}>
+              {METRIC_OPTIONS.find((o) => o.value === metricValue)?.hint}
+            </Text>
+          )}
         </View>
       )}
       {accessory === 'alwaysOn' && (
@@ -140,6 +147,15 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     fontSize: 12,
     color: Colors.switchOn,
+  },
+  metricCol: {
+    alignItems: 'flex-end',
+  },
+  metricHint: {
+    ...Typography.callout,
+    fontSize: 11,
+    color: Colors.textTertiary,
+    marginTop: 4,
   },
   segmentedWrap: {
     flexDirection: 'row',
