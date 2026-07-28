@@ -1,5 +1,7 @@
 import { PlatformId } from './platforms';
 
+export type MetricVisibility = 'visible' | 'hidden-number' | 'hidden-both';
+
 export type Feature = {
   /** Stable key stored in the settings store and read by the injection engine. */
   key: string;
@@ -14,6 +16,8 @@ export type Feature = {
   /** If set, this row nests (indented) under its parent and only shows when the
    *  parent toggle is on. */
   parent?: string;
+  /** When true, this feature uses 3-state MetricVisibility instead of boolean. */
+  metric?: boolean;
 };
 
 /**
@@ -47,9 +51,8 @@ export const FEATURES: Partial<Record<PlatformId, Feature[]>> = {
     },
     { key: 'blockSuggested', label: 'Block Suggested Posts', default: false },
     { key: 'blockSponsored', label: 'Block Sponsored Posts', default: false },
-    { key: 'hideLikeCounts', label: 'Hide Like Counts', default: false },
-    { key: 'hideFollowerCounts', label: 'Hide Follower Counts', default: false },
-    { key: 'hideLikeButton', label: 'Hide Like Button', default: false },
+    { key: 'hideLikeCounts', label: 'Hide Like Counts', default: false, metric: true },
+    { key: 'hideFollowerCounts', label: 'Hide Follower Counts', default: false, metric: true },
     { key: 'hideCommentButton', label: 'Hide Comment Button', default: false },
     { key: 'hideShareButton', label: 'Hide Share Button', default: false },
     { key: 'hideSaveButton', label: 'Hide Save Button', default: false },
@@ -77,8 +80,8 @@ export const FEATURES: Partial<Record<PlatformId, Feature[]>> = {
       note: 'Shows only the search bar and results.',
     },
     { key: 'blockSponsored', label: 'Block Ads', default: false },
-    { key: 'hideViewCounts', label: 'Hide View Counts', default: false },
-    { key: 'hideLikeCounts', label: 'Hide Like Counts', default: false },
+    { key: 'hideViewCounts', label: 'Hide View Counts', default: false, metric: true },
+    { key: 'hideLikeCounts', label: 'Hide Like Counts', default: false, metric: true },
     {
       key: 'limitFeed',
       label: 'Limit Feed',
@@ -97,7 +100,7 @@ export const FEATURES: Partial<Record<PlatformId, Feature[]>> = {
     { key: 'hideForYou', label: 'Hide For You Tab', default: true },
     { key: 'blockTrending', label: 'Hide Trending & Explore', default: false },
     { key: 'blockWhoToFollow', label: 'Hide Who To Follow', default: false },
-    { key: 'hideMetrics', label: 'Hide Engagement Counts', default: false },
+    { key: 'hideMetrics', label: 'Hide Engagement Counts', default: false, metric: true },
     { key: 'blockPromoted', label: 'Block Promoted Posts', default: false },
     { key: 'blockGrok', label: 'Hide Grok', default: false },
     {
@@ -150,7 +153,7 @@ export const FEATURES: Partial<Record<PlatformId, Feature[]>> = {
       default: true,
       note: 'Keeps you in your own communities.',
     },
-    { key: 'hideMetrics', label: 'Hide Vote & Comment Counts', default: false },
+    { key: 'hideMetrics', label: 'Hide Vote & Comment Counts', default: false, metric: true },
     {
       key: 'limitFeed',
       label: 'Limit Feed',
@@ -168,7 +171,7 @@ export const FEATURES: Partial<Record<PlatformId, Feature[]>> = {
     },
     { key: 'blockNews', label: 'Hide LinkedIn News', default: true },
     { key: 'hideBadgeCounts', label: 'Hide Notification Badges', default: true },
-    { key: 'hideReactionCounts', label: 'Hide Reaction Counts', default: false },
+    { key: 'hideReactionCounts', label: 'Hide Reaction Counts', default: false, metric: true },
     {
       key: 'limitFeed',
       label: 'Limit Feed',
@@ -195,7 +198,17 @@ export const FEED_LIMIT_STEP = 1;
 export const COMING_SOON: PlatformId[] = [];
 
 /** Default settings object for one platform, derived from its feature defaults. */
-export function defaultSettingsFor(platform: PlatformId): Record<string, boolean> {
+export function defaultSettingsFor(platform: PlatformId): Record<string, boolean | MetricVisibility> {
   const features = FEATURES[platform] ?? [];
-  return Object.fromEntries(features.map((f) => [f.key, f.default]));
+  return Object.fromEntries(
+    features.map((f) => [f.key, f.metric ? 'visible' as MetricVisibility : f.default])
+  );
 }
+
+/** Set of all feature keys that use the 3-state metric model. */
+export const METRIC_FEATURE_KEYS = new Set(
+  Object.values(FEATURES)
+    .flat()
+    .filter((f): f is Feature => !!f?.metric)
+    .map((f) => f.key)
+);

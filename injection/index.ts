@@ -8,7 +8,7 @@ import { buildFacebookScript } from './facebook';
 import { buildRedditScript } from './reddit';
 import { buildLinkedInScript } from './linkedin';
 
-type Builder = (config: Record<string, boolean>, limitCount: number) => string;
+type Builder = (config: Record<string, boolean | string>, limitCount: number) => string;
 
 const BUILDERS: Partial<Record<PlatformId, Builder>> = {
   instagram: buildInstagramScript,
@@ -33,12 +33,12 @@ const BADGE_KEYS = ['hideBadges', 'hideBadgeCounts'];
 
 /** Per-platform settings with the cross-platform master toggles laid on top. */
 export function applyMasterOverrides(
-  config: Record<string, boolean>,
+  config: Record<string, boolean | string>,
   master?: MasterSettings
-): Record<string, boolean> {
+): Record<string, boolean | string> {
   if (!master) return config;
   const out = { ...config };
-  if (master.killAllMetrics) for (const k of METRIC_KEYS) out[k] = true;
+  if (master.killAllMetrics) for (const k of METRIC_KEYS) out[k] = 'hidden-both';
   if (master.killAllBadges) for (const k of BADGE_KEYS) out[k] = true;
   if (master.messagesOnly) out.dmsOnly = true;
   if (master.grayscaleEverything) out.grayscale = true;
@@ -48,7 +48,7 @@ export function applyMasterOverrides(
 /** Returns the injection script for a platform, or a no-op if none is wired yet. */
 export function buildInjection(
   platform: PlatformId,
-  config: Record<string, boolean>,
+  config: Record<string, boolean | string>,
   limitCount: number,
   master?: MasterSettings
 ): string {

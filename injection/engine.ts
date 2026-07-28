@@ -3,6 +3,9 @@ export type Rule = {
   key: string;
   /** CSS selectors hidden with `display: none` when the feature is on. */
   css?: string[];
+  /** CSS selectors targeting interactive controls (buttons/links), not counts.
+   *  Only applied when the metric is set to 'hidden-both'. */
+  controlCss?: string[];
   /**
    * JS text pass, used where `:contains()` would be needed (not valid CSS).
    * Scans small `probe` elements; on a text hit, hides `el.closest(closest)`
@@ -34,7 +37,7 @@ export type RouteGuard = {
 export type BuildScriptArgs = {
   rules: Rule[];
   guards?: RouteGuard[];
-  config: Record<string, boolean>;
+  config: Record<string, boolean | string>;
   /** Feature key that, when on, applies `filter: grayscale(1)` to the page. */
   grayscaleKey?: string;
   /** Feature key that caps the feed; hides list items past `limitCount`. */
@@ -101,8 +104,22 @@ export function buildScript(args: BuildScriptArgs): string {
 
   // --- CSS built once, at build time ---
   let css = rules
-    .filter((r) => config[r.key] && r.css && r.css.length)
-    .map((r) => `${r.css!.join(', ')} { display: none !important; }`)
+    .filter((r) => {
+      const v = config[r.key];
+      return v && v !== 'visible' && (r.css?.length || r.controlCss?.length);
+    })
+    .map((r) => {
+      const v = config[r.key];
+      const selectors: string[] = [];
+      if (r.css) selectors.push(...r.css);
+      if (r.controlCss && v === 'hidden-both') selectors.push(...r.controlCss);
+      // 'hidden-number' uses only r.css; boolean true uses r.css + controlCss
+      if (r.controlCss && v === true) selectors.push(...r.controlCss);
+      return selectors.length
+        ? `${selectors.join(', ')} { display: none !important; }`
+        : '';
+    })
+    .filter(Boolean)
     .join('\n');
 
   if (grayscaleKey && config[grayscaleKey]) {
@@ -116,7 +133,26 @@ export function buildScript(args: BuildScriptArgs): string {
   // when Instagram reordered/virtualized posts, so it was removed).
   const limitActive = !!(limitKey && config[limitKey] && limitSelector);
 
-  const activeTextRules = rules.filter((r) => config[r.key] && r.textHide);
+  const activeTextRules = rules.filter((r) => {
+    const v = config[r.key];
+    return v && v !== 'visible' && r.textHide;
+  });
+
+  // Health beacon: collect active CSS selectors keyed by rule for one-time validation.
+  const healthSelectors = rules
+    .filter((r) => {
+      const v = config[r.key];
+      return v && v !== 'visible';
+    })
+    .flatMap((r) => {
+      const sels: { key: string; selector: string }[] = [];
+      if (r.css) sels.push(...r.css.map((s) => ({ key: r.key, selector: s })));
+      const v = config[r.key];
+      if (r.controlCss && (v === 'hidden-both' || v === true)) {
+        sels.push(...r.controlCss.map((s) => ({ key: r.key, selector: s })));
+      }
+      return sels;
+    });
 
   return `
     (function() {
@@ -125,6 +161,7 @@ export function buildScript(args: BuildScriptArgs): string {
 
       var config = ${JSON.stringify(config)};
       var css = ${JSON.stringify(css)};
+      var healthSelectors = ${JSON.stringify(healthSelectors)};
       var textRules = ${JSON.stringify(
         activeTextRules.map((r) => ({
           probe: r.textHide!.probe,
@@ -182,6 +219,7 @@ export function buildScript(args: BuildScriptArgs): string {
       function applyTextRules() {
         if (!textRules.length) return;
         for (var i = 0; i < textRules.length; i++) {
+          try {
           var rule = textRules[i];
           var nodes = document.querySelectorAll(rule.probe);
           for (var j = 0; j < nodes.length; j++) {
@@ -196,6 +234,7 @@ export function buildScript(args: BuildScriptArgs): string {
             target.setAttribute('data-quiet-hidden', '1');
             target.style.setProperty('display', 'none', 'important');
           }
+          } catch (e) {}
         }
       }
 
@@ -441,10 +480,37 @@ export function buildScript(args: BuildScriptArgs): string {
         try { applyFeedLimit(); } catch (e) {}
       }
 
+      var healthDone = false;
+      function runHealthBeacon() {
+        if (healthDone || !healthSelectors.length) return;
+        healthDone = true;
+        var broken = [];
+        var zero = [];
+        for (var h = 0; h < healthSelectors.length; h++) {
+          var hs = healthSelectors[h];
+          try {
+            var count = document.querySelectorAll(hs.selector).length;
+            if (count === 0) zero.push(hs);
+          } catch (e) {
+            broken.push(hs);
+          }
+        }
+        if ((broken.length || zero.length) && window.ReactNativeWebView) {
+          try {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'quiet-health',
+              broken: broken,
+              zero: zero
+            }));
+          } catch (e) {}
+        }
+      }
+
       function markReady() {
         if (ready) return;
         ready = true;
         runPasses();
+        try { runHealthBeacon(); } catch (e) {}
       }
 
       runPasses();

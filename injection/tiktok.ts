@@ -37,7 +37,7 @@ const GUARDS: RouteGuard[] = [
 ];
 
 export function buildTikTokScript(
-  config: Record<string, boolean>,
+  config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
   // The root path IS the FYP, so the generic prefix guard can't express

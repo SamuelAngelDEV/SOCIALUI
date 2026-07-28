@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
 import { PlatformConfig } from '@/constants/platforms';
-import { FEATURES, COMING_SOON } from '@/constants/features';
+import { FEATURES, COMING_SOON, MetricVisibility } from '@/constants/features';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useStatsStore } from '@/store/statsStore';
 import { getSavingsLine } from '@/utils/savings';
@@ -22,6 +22,7 @@ export function PlatformSection({ platform }: Props) {
   const enabled = useSettingsStore((s) => s.platformEnabled[platform.id]);
   const settings = useSettingsStore((s) => s.platformSettings[platform.id]);
   const setToggle = useSettingsStore((s) => s.setToggle);
+  const setMetricToggle = useSettingsStore((s) => s.setMetricToggle);
   const setPlatformEnabled = useSettingsStore((s) => s.setPlatformEnabled);
   const resetPlatform = useSettingsStore((s) => s.resetPlatform);
   const enabledAt = useSettingsStore((s) => s.toggleEnabledAt[platform.id]);
@@ -63,8 +64,12 @@ export function PlatformSection({ platform }: Props) {
             features
               .filter((f) => !f.parent)
               .map((f) => {
+                const settingVal = settings?.[f.key];
+                const isOn = f.metric
+                  ? settingVal !== 'visible' && settingVal !== undefined && settingVal !== false
+                  : !!settingVal;
                 const children = features.filter(
-                  (c) => c.parent === f.key && enabled && !!settings?.[f.key]
+                  (c) => c.parent === f.key && enabled && isOn
                 );
                 return (
                   <View key={f.key}>
@@ -77,16 +82,20 @@ export function PlatformSection({ platform }: Props) {
                           ? getSavingsLine(
                               platform.id,
                               f.key,
-                              f.alwaysOn ? true : !!settings?.[f.key],
+                              f.alwaysOn ? true : isOn,
                               days,
                               enabledAt?.[f.key]
                             ) ?? undefined
                           : undefined
                       }
-                      accessory={f.alwaysOn ? 'alwaysOn' : 'switch'}
-                      value={f.alwaysOn ? true : !!settings?.[f.key]}
+                      accessory={f.alwaysOn ? 'alwaysOn' : f.metric ? 'metric' : 'switch'}
+                      value={f.alwaysOn ? true : !!settingVal}
                       onValueChange={
-                        f.alwaysOn ? undefined : (v) => setToggle(platform.id, f.key, v)
+                        f.alwaysOn || f.metric ? undefined : (v) => setToggle(platform.id, f.key, v)
+                      }
+                      metricValue={f.metric ? (settingVal as MetricVisibility ?? 'visible') : undefined}
+                      onMetricChange={
+                        f.metric ? (v) => setMetricToggle(platform.id, f.key, v) : undefined
                       }
                       disabled={!enabled && !f.alwaysOn}
                     />

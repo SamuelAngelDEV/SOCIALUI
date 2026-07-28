@@ -22,6 +22,10 @@ export const RULES: Rule[] = [
       'shreddit-post-overflow-menu ~ span faceplate-number',
       '[data-testid="vote-arrows"] faceplate-number',
     ],
+    controlCss: [
+      '[data-testid="vote-arrows"]',
+      'shreddit-post [slot="credit-bar"]',
+    ],
   },
 ];
 
@@ -30,7 +34,7 @@ const GUARDS: RouteGuard[] = [
 ];
 
 export function buildRedditScript(
-  config: Record<string, boolean>,
+  config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
   return buildScript({

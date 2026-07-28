@@ -36,6 +36,10 @@ export const RULES: Rule[] = [
       '.social-proof-fact',
       'ul.social-details-social-counts__list',
     ],
+    controlCss: [
+      '.social-actions-bar',
+      '.feed-shared-social-action-bar',
+    ],
   },
 ];
 
@@ -49,7 +53,7 @@ const GUARDS: RouteGuard[] = [
 ];
 
 export function buildLinkedInScript(
-  config: Record<string, boolean>,
+  config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
   return buildScript({

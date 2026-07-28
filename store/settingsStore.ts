@@ -7,10 +7,12 @@ import {
   DEFAULT_FEED_LIMIT,
   FEED_LIMIT_MIN,
   FEED_LIMIT_MAX,
+  METRIC_FEATURE_KEYS,
+  MetricVisibility,
 } from '@/constants/features';
 import { dayKey } from '@/utils/stats';
 
-type PlatformSettings = Record<string, boolean>;
+type PlatformSettings = Record<string, boolean | MetricVisibility>;
 
 /** Cross-platform overrides — applied on top of per-platform settings. */
 export type MasterSettings = {
@@ -38,6 +40,7 @@ type SettingsState = {
   _hasHydrated: boolean;
   setHasHydrated: (value: boolean) => void;
   setToggle: (platform: PlatformId, key: string, value: boolean) => void;
+  setMetricToggle: (platform: PlatformId, key: string, value: MetricVisibility) => void;
   setPlatformEnabled: (platform: PlatformId, value: boolean) => void;
   setFeedLimit: (platform: PlatformId, value: number) => void;
   setMasterToggle: (key: keyof MasterSettings, value: boolean) => void;
@@ -91,6 +94,20 @@ export const useSettingsStore = create<SettingsState>()(
           };
         }),
 
+      setMetricToggle: (platform, key, value) =>
+        set((state) => {
+          const platEnabled = { ...(state.toggleEnabledAt[platform] ?? {}) };
+          if (value !== 'visible') platEnabled[key] = dayKey();
+          else delete platEnabled[key];
+          return {
+            platformSettings: {
+              ...state.platformSettings,
+              [platform]: { ...state.platformSettings[platform], [key]: value },
+            },
+            toggleEnabledAt: { ...state.toggleEnabledAt, [platform]: platEnabled },
+          };
+        }),
+
       setPlatformEnabled: (platform, value) =>
         set((state) => ({
           platformEnabled: { ...state.platformEnabled, [platform]: value },
@@ -128,10 +145,35 @@ export const useSettingsStore = create<SettingsState>()(
         const mergedSettings = {} as Record<PlatformId, PlatformSettings>;
         const mergedLimits = {} as Record<PlatformId, number>;
         for (const id of PLATFORM_ORDER) {
-          mergedSettings[id] = {
-            ...defaultSettingsFor(id),
-            ...(saved.platformSettings?.[id] ?? {}),
-          };
+          const defaults = defaultSettingsFor(id);
+          const savedPlat = saved.platformSettings?.[id] ?? {};
+          const merged = { ...defaults };
+          for (const [key, val] of Object.entries(savedPlat)) {
+            if (METRIC_FEATURE_KEYS.has(key)) {
+              // Migrate old booleans → MetricVisibility
+              if (typeof val === 'boolean') {
+                merged[key] = val ? 'hidden-both' : 'visible';
+              } else {
+                merged[key] = val;
+              }
+            } else {
+              merged[key] = val;
+            }
+          }
+          // Instagram migration: old hideLikeButton folds into hideLikeCounts
+          if (id === 'instagram' && typeof savedPlat.hideLikeButton === 'boolean') {
+            const hadButton = savedPlat.hideLikeButton;
+            const hadCounts = savedPlat.hideLikeCounts;
+            if (hadButton && !hadCounts) {
+              merged.hideLikeCounts = 'hidden-both';
+            } else if (hadButton && hadCounts) {
+              merged.hideLikeCounts = 'hidden-both';
+            } else if (!hadButton && hadCounts) {
+              merged.hideLikeCounts = 'hidden-number';
+            }
+            delete (merged as Record<string, unknown>).hideLikeButton;
+          }
+          mergedSettings[id] = merged;
           const savedLimit = saved.feedLimits?.[id];
           mergedLimits[id] =
             typeof savedLimit === 'number' ? clampLimit(savedLimit) : DEFAULT_FEED_LIMIT;

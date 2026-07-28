@@ -37,13 +37,18 @@ export const RULES: Rule[] = [
   },
   {
     key: 'hideMetrics',
-    // The animated count containers inside reply/repost/like buttons.
     css: [
       '[data-testid="reply"] [data-testid="app-text-transition-container"]',
       '[data-testid="retweet"] [data-testid="app-text-transition-container"]',
       '[data-testid="like"] [data-testid="app-text-transition-container"]',
       '[data-testid="unlike"] [data-testid="app-text-transition-container"]',
       'a[href$="/analytics"]',
+    ],
+    controlCss: [
+      '[data-testid="reply"]',
+      '[data-testid="retweet"]',
+      '[data-testid="like"]',
+      '[data-testid="unlike"]',
     ],
   },
   {
@@ -83,7 +88,7 @@ const GUARDS: RouteGuard[] = [
 ];
 
 export function buildTwitterScript(
-  config: Record<string, boolean>,
+  config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
   return buildScript({

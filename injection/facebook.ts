@@ -40,7 +40,7 @@ const GUARDS: RouteGuard[] = [
 ];
 
 export function buildFacebookScript(
-  config: Record<string, boolean>,
+  config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
   return buildScript({

@@ -86,9 +86,13 @@ export const RULES: Rule[] = [
   },
   {
     key: 'hideLikeCounts',
-    // The liked_by href is gone from much of the current DOM, so the reliable
-    // hook is the count text itself: exactly "169 likes" / "Liked by x and others".
     css: ['section a[href*="/liked_by/"]', 'a[href$="/liked_by/"]'],
+    controlCss: [
+      'svg[aria-label="Like"]',
+      'svg[aria-label="Unlike"]',
+      'div[role="button"]:has(> svg[aria-label="Like"])',
+      'div[role="button"]:has(> svg[aria-label="Unlike"])',
+    ],
     textHide: {
       probe: 'span, a, div[role="button"]',
       match: ['^liked by .{1,80}$', '^[\\d.,]+ ?[km]? ?likes?$', '^[\\d.,]+ ?[km]? ?others$'],
@@ -99,27 +103,15 @@ export const RULES: Rule[] = [
   {
     key: 'hideFollowerCounts',
     css: [
-      'a[href$="/followers/"]',
-      'a[href$="/following/"]',
-      'li:has(a[href$="/followers/"])',
-      'li:has(a[href$="/following/"])',
+      'a[href$="/followers/"] span',
+      'a[href$="/following/"] span',
     ],
     textHide: {
       probe: 'span, a',
       match: ['^[\\d.,]+ ?[km]? ?followers$', '^[\\d.,]+ ?[km]? ?following$'],
       regex: true,
-      closest: 'li',
+      closest: 'span, a',
     },
-  },
-  // Per-element customization. Hide both the icon and its button wrapper.
-  {
-    key: 'hideLikeButton',
-    css: [
-      'svg[aria-label="Like"]',
-      'svg[aria-label="Unlike"]',
-      'div[role="button"]:has(> svg[aria-label="Like"])',
-      'div[role="button"]:has(> svg[aria-label="Unlike"])',
-    ],
   },
   {
     key: 'hideCommentButton',
@@ -185,7 +177,7 @@ const GUARDS: RouteGuard[] = [
  * locked — a permanent non-passive touchmove listener would degrade scrolling
  * everywhere else in the app.
  */
-function dmReelGuard(config: Record<string, boolean>): string {
+function dmReelGuard(config: Record<string, boolean | string>): string {
   if (!config.blockReels) return '';
   return `
     (function() {
@@ -281,7 +273,7 @@ function dmReelGuard(config: Record<string, boolean>): string {
 }
 
 export function buildInstagramScript(
-  config: Record<string, boolean>,
+  config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
   return dmReelGuard(config) + buildScript({

@@ -124,6 +124,11 @@ export default function PlatformView() {
       if (!msg) return;
       if (msg.type === 'quiet-limit-reached') {
         setWallVisible(true);
+      } else if (msg.type === 'quiet-health') {
+        if (__DEV__) {
+          if (msg.broken?.length) console.warn('[Quiet] broken selectors:', msg.broken);
+          if (msg.zero?.length) console.log('[Quiet] zero-match selectors:', msg.zero);
+        }
       } else if (msg.type === 'quiet-nav' && typeof msg.path === 'string' && id) {
         const nextCat = mapPathToCategory(id, msg.path);
         if (nextCat !== catRef.current) {

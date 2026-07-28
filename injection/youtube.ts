@@ -52,6 +52,10 @@ export const RULES: Rule[] = [
   {
     key: 'hideLikeCounts',
     css: ['button[aria-label*="like this video"] .yt-spec-button-shape-next__button-text-content'],
+    controlCss: [
+      'button[aria-label*="like this video"]',
+      'button[aria-label*="dislike this video"]',
+    ],
   },
 ];
 
@@ -64,7 +68,7 @@ const GUARDS: RouteGuard[] = [
 ];
 
 export function buildYouTubeScript(
-  config: Record<string, boolean>,
+  config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
   return buildScript({
