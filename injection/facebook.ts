@@ -1,4 +1,5 @@
 import { buildScript, Rule, RouteGuard } from './engine';
+import { PlatformAdapter, buildFromAdapter } from './adapter';
 
 /**
  * Rule keys match `FEATURES.facebook`. Targets m.facebook.com. Meta obfuscates
@@ -39,18 +40,18 @@ const GUARDS: RouteGuard[] = [
   { key: 'blockMarketplace', redirectPrefixes: ['/marketplace'], to: '/' },
 ];
 
+export const facebookAdapter: PlatformAdapter = {
+  rules: RULES,
+  guards: GUARDS,
+  grayscaleKey: 'grayscale',
+  limitKey: 'limitFeed',
+  limitSelector: '[data-tracking-duration-id], article',
+  limitPath: '/',
+};
+
 export function buildFacebookScript(
   config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
-  return buildScript({
-    rules: RULES,
-    guards: GUARDS,
-    config,
-    grayscaleKey: 'grayscale',
-    limitKey: 'limitFeed',
-    limitSelector: '[data-tracking-duration-id], article',
-    limitCount,
-    limitPath: '/', // cap only the news feed
-  });
+  return buildFromAdapter(facebookAdapter, config, limitCount);
 }

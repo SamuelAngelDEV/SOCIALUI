@@ -1,4 +1,5 @@
 import { buildScript, Rule, RouteGuard } from './engine';
+import { PlatformAdapter, buildFromAdapter } from './adapter';
 
 /**
  * Rule keys match `FEATURES.twitter`. X's web app uses data-testid attributes
@@ -87,18 +88,18 @@ const GUARDS: RouteGuard[] = [
   },
 ];
 
+export const twitterAdapter: PlatformAdapter = {
+  rules: RULES,
+  guards: GUARDS,
+  grayscaleKey: 'grayscale',
+  limitKey: 'limitFeed',
+  limitSelector: 'article[data-testid="tweet"]',
+  limitPath: '/home',
+};
+
 export function buildTwitterScript(
   config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
-  return buildScript({
-    rules: RULES,
-    guards: GUARDS,
-    config,
-    grayscaleKey: 'grayscale',
-    limitKey: 'limitFeed',
-    limitSelector: 'article[data-testid="tweet"]',
-    limitCount,
-    limitPath: '/home', // cap only the home timeline, not threads or profiles
-  });
+  return buildFromAdapter(twitterAdapter, config, limitCount);
 }

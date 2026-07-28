@@ -1,4 +1,5 @@
 import { buildScript, Rule, RouteGuard } from './engine';
+import { PlatformAdapter, buildFromAdapter } from './adapter';
 
 /**
  * Rule keys match `FEATURES.linkedin`. LinkedIn's web classes are BEM-style and
@@ -52,18 +53,18 @@ const GUARDS: RouteGuard[] = [
   },
 ];
 
+export const linkedinAdapter: PlatformAdapter = {
+  rules: RULES,
+  guards: GUARDS,
+  grayscaleKey: 'grayscale',
+  limitKey: 'limitFeed',
+  limitSelector: '.feed-shared-update-v2, div[data-urn]',
+  limitPath: '/feed',
+};
+
 export function buildLinkedInScript(
   config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
-  return buildScript({
-    rules: RULES,
-    guards: GUARDS,
-    config,
-    grayscaleKey: 'grayscale',
-    limitKey: 'limitFeed',
-    limitSelector: '.feed-shared-update-v2, div[data-urn]',
-    limitCount,
-    limitPath: '/feed', // cap only the home feed ('/feed/' normalizes to this)
-  });
+  return buildFromAdapter(linkedinAdapter, config, limitCount);
 }

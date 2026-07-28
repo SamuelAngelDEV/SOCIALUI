@@ -1,4 +1,5 @@
 import { buildScript, Rule, RouteGuard } from './engine';
+import { PlatformAdapter, buildFromAdapter } from './adapter';
 
 /**
  * Rule keys match `FEATURES.reddit`. New reddit.com renders posts as
@@ -33,18 +34,18 @@ const GUARDS: RouteGuard[] = [
   { key: 'blockPopular', redirectPrefixes: ['/r/popular', '/r/all'], to: '/' },
 ];
 
+export const redditAdapter: PlatformAdapter = {
+  rules: RULES,
+  guards: GUARDS,
+  grayscaleKey: 'grayscale',
+  limitKey: 'limitFeed',
+  limitSelector: 'shreddit-post, article',
+  limitPath: '/',
+};
+
 export function buildRedditScript(
   config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
-  return buildScript({
-    rules: RULES,
-    guards: GUARDS,
-    config,
-    grayscaleKey: 'grayscale',
-    limitKey: 'limitFeed',
-    limitSelector: 'shreddit-post, article',
-    limitCount,
-    limitPath: '/', // cap only the home feed, not subreddits or comment pages
-  });
+  return buildFromAdapter(redditAdapter, config, limitCount);
 }

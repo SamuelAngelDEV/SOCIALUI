@@ -1,4 +1,5 @@
 import { buildScript, Rule, RouteGuard } from './engine';
+import { PlatformAdapter, buildFromAdapter } from './adapter';
 
 /**
  * Rule keys match `FEATURES.youtube` in constants/features.ts. Targets are the
@@ -67,18 +68,18 @@ const GUARDS: RouteGuard[] = [
   },
 ];
 
+export const youtubeAdapter: PlatformAdapter = {
+  rules: RULES,
+  guards: GUARDS,
+  grayscaleKey: 'grayscale',
+  limitKey: 'limitFeed',
+  limitSelector: 'ytm-rich-item-renderer',
+  limitPath: '/',
+};
+
 export function buildYouTubeScript(
   config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
-  return buildScript({
-    rules: RULES,
-    guards: GUARDS,
-    config,
-    grayscaleKey: 'grayscale',
-    limitKey: 'limitFeed',
-    limitSelector: 'ytm-rich-item-renderer',
-    limitCount,
-    limitPath: '/', // cap only the home grid, not search results or watch pages
-  });
+  return buildFromAdapter(youtubeAdapter, config, limitCount);
 }

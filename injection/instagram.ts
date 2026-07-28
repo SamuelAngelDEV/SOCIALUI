@@ -1,4 +1,5 @@
 import { buildScript, Rule, RouteGuard } from './engine';
+import { PlatformAdapter, buildFromAdapter } from './adapter';
 
 /**
  * Rule keys match `FEATURES.instagram` in constants/features.ts. Two or three
@@ -272,22 +273,23 @@ function dmReelGuard(config: Record<string, boolean | string>): string {
   `;
 }
 
+export const instagramAdapter: PlatformAdapter = {
+  rules: RULES,
+  guards: GUARDS,
+  grayscaleKey: 'grayscale',
+  limitKey: 'limitFeed',
+  limitSelector: 'main article',
+  limitRequireDescendant: 'time',
+  limitPath: '/',
+  badgeKey: 'hideBadges',
+  dmBadgeKey: 'hideDmBadges',
+  dmBadgeSelector: 'a[href^="/direct/"], a[href="/direct/inbox/"]',
+  preamble: dmReelGuard,
+};
+
 export function buildInstagramScript(
   config: Record<string, boolean | string>,
   limitCount = 10
 ): string {
-  return dmReelGuard(config) + buildScript({
-    rules: RULES,
-    guards: GUARDS,
-    config,
-    grayscaleKey: 'grayscale',
-    limitKey: 'limitFeed',
-    limitSelector: 'main article',
-    limitCount,
-    limitRequireDescendant: 'time', // skip skeleton posts (no timestamp yet)
-    limitPath: '/', // cap only the home feed, never post details or profiles
-    badgeKey: 'hideBadges',
-    dmBadgeKey: 'hideDmBadges',
-    dmBadgeSelector: 'a[href^="/direct/"], a[href="/direct/inbox/"]',
-  });
+  return buildFromAdapter(instagramAdapter, config, limitCount);
 }

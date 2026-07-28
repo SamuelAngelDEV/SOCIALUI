@@ -1,4 +1,5 @@
 import { buildScript, Rule, RouteGuard } from './engine';
+import { PlatformAdapter, buildFromAdapter } from './adapter';
 
 /**
  * Rule keys match `FEATURES.tiktok`. TikTok's web DOM uses data-e2e attributes,
@@ -36,31 +37,31 @@ const GUARDS: RouteGuard[] = [
   },
 ];
 
-export function buildTikTokScript(
-  config: Record<string, boolean | string>,
-  limitCount = 10
-): string {
-  // The root path IS the FYP, so the generic prefix guard can't express
-  // "redirect exactly /" without catching everything. Handle it with CSS-safe
-  // route logic here: prepend a tiny guard for the exact-root case.
-  const script = buildScript({
-    rules: RULES,
-    guards: GUARDS,
-    config,
-    grayscaleKey: 'grayscale',
-    limitKey: 'limitFeed',
-    limitSelector: '[data-e2e="recommend-list-item-container"]',
-    limitCount,
-  });
-
-  if (!config.blockFYP) return script;
-
+// The root path IS the FYP, so the generic prefix guard can't express
+// "redirect exactly /" without catching everything.
+function fypRootGuard(config: Record<string, boolean | string>): string {
+  if (!config.blockFYP) return '';
   return `
     (function() {
       try {
         if (location.pathname === '/' ) location.replace('/following');
       } catch (e) {}
     })();
-    ${script}
   `;
+}
+
+export const tiktokAdapter: PlatformAdapter = {
+  rules: RULES,
+  guards: GUARDS,
+  grayscaleKey: 'grayscale',
+  limitKey: 'limitFeed',
+  limitSelector: '[data-e2e="recommend-list-item-container"]',
+  preamble: fypRootGuard,
+};
+
+export function buildTikTokScript(
+  config: Record<string, boolean | string>,
+  limitCount = 10
+): string {
+  return buildFromAdapter(tiktokAdapter, config, limitCount);
 }

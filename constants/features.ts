@@ -195,7 +195,7 @@ export const FEED_LIMIT_MAX = 100;
 export const FEED_LIMIT_STEP = 1;
 
 /** Platforms whose settings section is shown but not yet wired up. */
-export const COMING_SOON: PlatformId[] = [];
+export const COMING_SOON: PlatformId[] = ['twitter', 'tiktok', 'facebook', 'reddit', 'linkedin'];
 
 /** Default settings object for one platform, derived from its feature defaults. */
 export function defaultSettingsFor(platform: PlatformId): Record<string, boolean | MetricVisibility> {

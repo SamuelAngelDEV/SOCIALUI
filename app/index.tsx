@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BarChart3, ChevronRight, Settings as SettingsIcon } from 'lucide-react-native';
 import { PLATFORM_LIST, PlatformConfig } from '@/constants/platforms';
+import { COMING_SOON } from '@/constants/features';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
 import { PlatformTile } from '@/components/PlatformTile';
@@ -36,6 +37,7 @@ export default function Home() {
   };
 
   const openPlatform = (platform: PlatformConfig) => {
+    if (COMING_SOON.includes(platform.id)) return;
     if (platform.kind === 'block-only') {
       router.push('/snapchat');
     } else {
@@ -75,6 +77,7 @@ export default function Home() {
             key={platform.id}
             platform={platform}
             width={tileWidth}
+            comingSoon={COMING_SOON.includes(platform.id)}
             onPress={() => openPlatform(platform)}
           />
         ))}
