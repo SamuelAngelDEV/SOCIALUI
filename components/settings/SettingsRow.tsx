@@ -5,18 +5,12 @@ import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
 import type { MetricVisibility } from '@/constants/features';
 
-const METRIC_OPTIONS: { label: string; value: MetricVisibility; hint: string }[] = [
-  { label: 'Off', value: 'visible', hint: 'Everything is visible.' },
-  { label: 'Hide #', value: 'hidden-number', hint: 'Numbers hidden. Buttons still work.' },
-  { label: 'Hide All', value: 'hidden-both', hint: 'Numbers and buttons both hidden.' },
-];
-
 type Props = {
   label: string;
   note?: string;
   /** Data-driven savings line, rendered in the accent color under the note. */
   insight?: string;
-  /** Right accessory: a switch, an "Always On" label, a chevron, a 3-way metric, or custom. */
+  /** Right accessory: a switch, an "Always On" label, a chevron, or custom. */
   accessory: 'switch' | 'alwaysOn' | 'chevron' | 'none' | 'metric';
   value?: boolean;
   onValueChange?: (value: boolean) => void;
@@ -40,61 +34,69 @@ export function SettingsRow({
   leading,
   disabled,
 }: Props) {
+  const metricIsOn = metricValue !== undefined && metricValue !== 'visible';
+  const metricIsHideBoth = metricValue === 'hidden-both';
+
   const body = (
-    <View style={styles.row}>
-      {leading ? <View style={styles.leading}>{leading}</View> : null}
-      <View style={styles.textCol}>
-        <Text style={[Typography.body, disabled && styles.disabledText]}>{label}</Text>
-        {note ? <Text style={styles.note}>{note}</Text> : null}
-        {insight ? <Text style={styles.insight}>{insight}</Text> : null}
+    <View>
+      <View style={styles.row}>
+        {leading ? <View style={styles.leading}>{leading}</View> : null}
+        <View style={styles.textCol}>
+          <Text style={[Typography.body, disabled && styles.disabledText]}>{label}</Text>
+          {note ? <Text style={styles.note}>{note}</Text> : null}
+          {insight ? <Text style={styles.insight}>{insight}</Text> : null}
+        </View>
+
+        {accessory === 'switch' && (
+          <Switch
+            value={value}
+            onValueChange={onValueChange}
+            trackColor={{ true: Colors.switchOn, false: '#E4E4E1' }}
+            ios_backgroundColor="#E4E4E1"
+          />
+        )}
+        {accessory === 'metric' && (
+          <Switch
+            value={metricIsOn}
+            onValueChange={(on) =>
+              onMetricChange?.(on ? 'hidden-number' : 'visible')
+            }
+            trackColor={{ true: Colors.switchOn, false: '#E4E4E1' }}
+            ios_backgroundColor="#E4E4E1"
+            disabled={disabled}
+          />
+        )}
+        {accessory === 'alwaysOn' && (
+          <View style={styles.alwaysOnPill}>
+            <Text style={styles.alwaysOnText}>Always On</Text>
+          </View>
+        )}
+        {accessory === 'chevron' && <ChevronRight size={18} color={Colors.textTertiary} />}
       </View>
 
-      {accessory === 'switch' && (
-        <Switch
-          value={value}
-          onValueChange={onValueChange}
-          trackColor={{ true: Colors.switchOn, false: '#E4E4E1' }}
-          ios_backgroundColor="#E4E4E1"
-        />
-      )}
-      {accessory === 'metric' && (
-        <View style={styles.metricCol}>
-          <View style={styles.segmentedWrap}>
-            {METRIC_OPTIONS.map((opt) => {
-              const active = metricValue === opt.value;
-              return (
-                <Pressable
-                  key={opt.value}
-                  style={[styles.segment, active && styles.segmentActive]}
-                  onPress={() => onMetricChange?.(opt.value)}
-                  disabled={disabled}
-                >
-                  <Text
-                    style={[
-                      styles.segmentText,
-                      active && styles.segmentTextActive,
-                      disabled && styles.disabledText,
-                    ]}
-                  >
-                    {opt.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+      {accessory === 'metric' && metricIsOn && (
+        <View style={styles.childRow}>
+          <View style={styles.row}>
+            <View style={styles.textCol}>
+              <Text style={[Typography.body, disabled && styles.disabledText]}>
+                Hide Button Too
+              </Text>
+              <Text style={styles.note}>
+                Also removes the tap target, not just the number.
+              </Text>
+            </View>
+            <Switch
+              value={metricIsHideBoth}
+              onValueChange={(on) =>
+                onMetricChange?.(on ? 'hidden-both' : 'hidden-number')
+              }
+              trackColor={{ true: Colors.switchOn, false: '#E4E4E1' }}
+              ios_backgroundColor="#E4E4E1"
+              disabled={disabled}
+            />
           </View>
-          {metricValue && metricValue !== 'visible' && (
-            <Text style={styles.metricHint}>
-              {METRIC_OPTIONS.find((o) => o.value === metricValue)?.hint}
-            </Text>
-          )}
         </View>
       )}
-      {accessory === 'alwaysOn' && (
-        <View style={styles.alwaysOnPill}>
-          <Text style={styles.alwaysOnText}>Always On</Text>
-        </View>
-      )}
-      {accessory === 'chevron' && <ChevronRight size={18} color={Colors.textTertiary} />}
     </View>
   );
 
@@ -148,41 +150,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.switchOn,
   },
-  metricCol: {
-    alignItems: 'flex-end',
-  },
-  metricHint: {
-    ...Typography.callout,
-    fontSize: 11,
-    color: Colors.textTertiary,
-    marginTop: 4,
-  },
-  segmentedWrap: {
-    flexDirection: 'row',
-    backgroundColor: '#E4E4E1',
-    borderRadius: 8,
-    padding: 2,
-  },
-  segment: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-  },
-  segmentActive: {
-    backgroundColor: Colors.surface,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 1,
-  },
-  segmentText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  segmentTextActive: {
-    color: Colors.textPrimary,
-    fontFamily: 'Inter_600SemiBold',
+  childRow: {
+    paddingLeft: 16,
+    backgroundColor: Colors.groupedBackground,
   },
 });
