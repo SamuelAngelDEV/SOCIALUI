@@ -52,7 +52,7 @@ export const FEATURES: Partial<Record<PlatformId, Feature[]>> = {
     { key: 'blockSuggested', label: 'Block Suggested Posts', default: false },
     { key: 'blockSponsored', label: 'Block Sponsored Posts', default: false },
     { key: 'hideLikeCounts', label: 'Hide Like Counts', default: false, metric: true },
-    { key: 'hideFollowerCounts', label: 'Hide Follower Counts', default: false, metric: true },
+    { key: 'hideFollowerCounts', label: 'Hide Follower Counts', default: false },
     { key: 'hideCommentButton', label: 'Hide Comment Button', default: false },
     { key: 'hideShareButton', label: 'Hide Share Button', default: false },
     { key: 'hideSaveButton', label: 'Hide Save Button', default: false },
