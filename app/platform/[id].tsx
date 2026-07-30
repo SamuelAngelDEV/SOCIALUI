@@ -57,7 +57,8 @@ export default function PlatformView() {
   } | null>(null);
 
   // Close out the running category segment into both the session aggregate and
-  // the persistent per-day stats.
+  // the persistent per-day stats. `now` is passed through so the store can split
+  // the segment across any local hour (or midnight) boundary it crossed.
   const commitSegment = () => {
     const now = Date.now();
     const ms = now - catStartRef.current;
@@ -65,7 +66,7 @@ export default function PlatformView() {
     if (pausedRef.current || ms < 500 || !id) return;
     const cat = catRef.current;
     sessionAggRef.current[cat] = (sessionAggRef.current[cat] ?? 0) + ms;
-    addTime(id, cat, ms);
+    addTime(id, cat, ms, now);
   };
 
   // Don't count time while the app is backgrounded.

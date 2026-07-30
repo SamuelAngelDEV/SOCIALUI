@@ -6,14 +6,37 @@ import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
 import { PLATFORMS, PlatformId } from '@/constants/platforms';
 import { PlatformLogo } from '@/components/PlatformLogo';
+import { CategoryBars, HourChart, SplitBar, WeekChart } from '@/components/charts';
 import { useStatsStore, DayStats } from '@/store/statsStore';
 import {
+  categoriesOfKind,
   Category,
   CATEGORY_LABELS,
+  describeRhythm,
+  findRhythmWindow,
   formatDuration,
+  HourHistogram,
+  hourHistogram,
+  KIND_LABELS,
+  lastNDayKeys,
+  RHYTHM_WINDOW_DAYS,
+  splitByKind,
   weekDays,
   weekKey,
 } from '@/utils/stats';
+
+/** Gold for what the ranking model chose, green for what the user chose. */
+const ALGORITHMIC_COLOR = Colors.accentGold;
+const INTENTIONAL_COLOR = Colors.primary;
+
+/** Category bars carry the same colour language as the headline split. */
+const CATEGORY_COLORS: Record<Category, string> = {
+  feed: ALGORITHMIC_COLOR,
+  reels: ALGORITHMIC_COLOR,
+  messages: INTENTIONAL_COLOR,
+  video: INTENTIONAL_COLOR,
+  other: Colors.textTertiary,
+};
 
 type WeekAgg = {
   total: number;
@@ -77,16 +100,6 @@ function buildFeedback(week: WeekAgg, prev: WeekAgg): string[] {
     }
   }
 
-  const browsing = (week.categories.feed ?? 0) + (week.categories.reels ?? 0) +
-    (week.categories.video ?? 0);
-  const msgs = week.categories.messages ?? 0;
-  if (msgs > 0 && browsing > 0) {
-    const ratio = Math.round((browsing / msgs) * 10) / 10;
-    if (ratio >= 2) {
-      lines.push(`Across all apps you spent ${ratio}x more time browsing than talking to people.`);
-    }
-  }
-
   if (prev.total > 0) {
     const delta = week.total - prev.total;
     const pct = Math.round((Math.abs(delta) / prev.total) * 100);
@@ -106,25 +119,90 @@ function buildFeedback(week: WeekAgg, prev: WeekAgg): string[] {
   return lines;
 }
 
-const DAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+/**
+ * The headline. Screen Time reports which app; this reports which kind of screen.
+ * Percentages are taken over classified time only — see CATEGORY_KIND in utils/stats
+ * for why 'other' sits outside the ratio.
+ */
+function SplitCard({ categories }: { categories: Partial<Record<Category, number>> }) {
+  const split = splitByKind(categories);
 
-function WeekChart({ perDay }: { perDay: number[] }) {
-  const max = Math.max(...perDay, 1);
+  if (split.algorithmicShare === null) {
+    return (
+      <View style={styles.card}>
+        <Text style={[Typography.body, styles.muted]}>
+          Nothing to split yet this week. Once you spend time in an app, it shows up here.
+        </Text>
+      </View>
+    );
+  }
+
+  const algoPct = Math.round(split.algorithmicShare * 100);
+
   return (
-    <View style={styles.chart}>
-      {perDay.map((ms, i) => (
-        <View key={i} style={styles.chartCol}>
-          <View style={styles.chartBarWell}>
-            <View
-              style={[
-                styles.chartBar,
-                { height: `${Math.max((ms / max) * 100, ms > 0 ? 4 : 0)}%` },
-              ]}
-            />
-          </View>
-          <Text style={styles.chartDay}>{DAY_LETTERS[i]}</Text>
-        </View>
-      ))}
+    <View style={styles.card}>
+      <Text style={[Typography.largeTitle, styles.splitHeadline]}>
+        {algoPct}% of your time was chosen for you.
+      </Text>
+      <Text style={[Typography.callout, styles.splitSub]}>
+        Feeds and reels are ranked by an algorithm. Messages and the videos you open are not.
+      </Text>
+
+      <SplitBar
+        segments={[
+          {
+            key: 'algorithmic',
+            label: KIND_LABELS.algorithmic,
+            value: split.algorithmic,
+            valueLabel: formatDuration(split.algorithmic),
+            color: ALGORITHMIC_COLOR,
+          },
+          {
+            key: 'intentional',
+            label: KIND_LABELS.intentional,
+            value: split.intentional,
+            valueLabel: formatDuration(split.intentional),
+            color: INTENTIONAL_COLOR,
+          },
+        ]}
+      />
+
+      {split.unclassified > 0 && (
+        <Text style={[Typography.callout, styles.splitFootnote]}>
+          {formatDuration(split.unclassified)} was profiles, search and settings — we can&apos;t
+          tell which side that belongs on, so it stays out of the split.
+        </Text>
+      )}
+    </View>
+  );
+}
+
+/** When the algorithm gets the most of the day. Informational — no target, no nudge. */
+function RhythmCard({ histogram }: { histogram: HourHistogram }) {
+  const finding = findRhythmWindow(histogram);
+
+  return (
+    <View style={styles.card}>
+      {finding ? (
+        <>
+          <Text style={[Typography.title, styles.rhythmHeadline]}>{describeRhythm(finding)}</Text>
+          <Text style={[Typography.callout, styles.splitSub]}>
+            From your last {histogram.daysWithData} days with activity. Worth knowing, that&apos;s all.
+          </Text>
+        </>
+      ) : (
+        <Text style={[Typography.body, styles.muted]}>
+          Still learning your rhythm. A few more days of data and there&apos;ll be enough here
+          to say something honest about when feeds take the most of your day.
+        </Text>
+      )}
+
+      <HourChart
+        values={histogram.hours}
+        highlightStart={finding?.startHour}
+        highlightLength={finding?.lengthHours}
+        color={ALGORITHMIC_COLOR}
+      />
     </View>
   );
 }
@@ -154,28 +232,17 @@ function PlatformCard({ platform, totalMs, cats, weekTotal }: {
         </View>
       </View>
 
-      {rows.length > 0 ? (
-        rows.map(([cat, ms]) => (
-          <View key={cat} style={[styles.breakRow, styles.breakRowBorder]}>
-            <Text style={[Typography.body, styles.breakLabel]}>{CATEGORY_LABELS[cat]}</Text>
-            <View style={styles.breakBarWell}>
-              <View
-                style={[
-                  styles.breakBar,
-                  { width: `${Math.max((ms / Math.max(totalMs, 1)) * 100, 2)}%` },
-                ]}
-              />
-            </View>
-            <Text style={[Typography.callout, styles.breakValue]}>{formatDuration(ms)}</Text>
-          </View>
-        ))
-      ) : (
-        <View style={[styles.breakRow, styles.breakRowBorder]}>
-          <Text style={[Typography.callout, { color: Colors.textTertiary }]}>
-            No activity detail recorded yet.
-          </Text>
-        </View>
-      )}
+      <CategoryBars
+        total={totalMs}
+        emptyLabel="No activity detail recorded yet."
+        rows={rows.map(([cat, ms]) => ({
+          key: cat,
+          label: CATEGORY_LABELS[cat],
+          value: ms,
+          valueLabel: formatDuration(ms),
+          color: CATEGORY_COLORS[cat],
+        }))}
+      />
     </View>
   );
 }
@@ -193,6 +260,14 @@ export default function Insights() {
   const week = aggregateWeek(days, thisMon);
   const prev = aggregateWeek(days, prevMon);
   const feedback = buildFeedback(week, prev);
+
+  // Rhythm reads a rolling window, not the calendar week — a pattern needs more
+  // than the two days a fresh Monday would give it.
+  const rhythm = hourHistogram(
+    days,
+    lastNDayKeys(RHYTHM_WINDOW_DAYS),
+    categoriesOfKind('algorithmic')
+  );
 
   // Apps that actually saw use, busiest first.
   const activePlatforms = (Object.entries(week.platforms) as [PlatformId, number][])
@@ -217,12 +292,22 @@ export default function Insights() {
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
         showsVerticalScrollIndicator={false}
       >
+        <Text style={styles.sectionTitle}>WHO CHOSE IT — THIS WEEK</Text>
+        <SplitCard categories={week.categories} />
+
+        {rhythm.total > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>YOUR RHYTHM</Text>
+            <RhythmCard histogram={rhythm} />
+          </>
+        )}
+
         <Text style={styles.sectionTitle}>TOTAL — ALL APPS</Text>
         <View style={styles.card}>
           <Text style={[Typography.largeTitle, styles.total]}>
             {formatDuration(week.total)}
           </Text>
-          <WeekChart perDay={week.perDay} />
+          <WeekChart values={week.perDay} />
         </View>
 
         {activePlatforms.length > 0 && (
@@ -257,7 +342,7 @@ export default function Insights() {
             <Text style={styles.sectionTitle}>LAST WEEK</Text>
             <View style={styles.card}>
               <Text style={[Typography.title, styles.total]}>{formatDuration(prev.total)}</Text>
-              <WeekChart perDay={prev.perDay} />
+              <WeekChart values={prev.perDay} />
             </View>
           </>
         )}
@@ -298,34 +383,30 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 16,
   },
+  muted: {
+    color: Colors.textSecondary,
+    lineHeight: 21,
+  },
+  splitHeadline: {
+    lineHeight: 34,
+    marginBottom: 6,
+  },
+  splitSub: {
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  splitFootnote: {
+    color: Colors.textTertiary,
+    lineHeight: 18,
+    marginTop: 14,
+  },
+  rhythmHeadline: {
+    lineHeight: 28,
+    marginBottom: 6,
+  },
   total: {
     textAlign: 'center',
     marginBottom: 12,
-  },
-  chart: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    height: 96,
-  },
-  chartCol: {
-    flex: 1,
-    alignItems: 'center',
-    height: '100%',
-  },
-  chartBarWell: {
-    flex: 1,
-    width: 14,
-    justifyContent: 'flex-end',
-  },
-  chartBar: {
-    width: 14,
-    borderRadius: 4,
-    backgroundColor: Colors.primary,
-  },
-  chartDay: {
-    ...Typography.caption,
-    marginTop: 6,
   },
   platHeader: {
     flexDirection: 'row',
@@ -342,36 +423,6 @@ const styles = StyleSheet.create({
   platShare: {
     ...Typography.callout,
     color: Colors.textTertiary,
-  },
-  breakRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  breakRowBorder: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.separator,
-  },
-  breakLabel: {
-    width: 110,
-  },
-  breakBarWell: {
-    flex: 1,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.primarySubtle,
-    marginRight: 12,
-    overflow: 'hidden',
-  },
-  breakBar: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.primary,
-  },
-  breakValue: {
-    minWidth: 56,
-    textAlign: 'right',
-    color: Colors.textSecondary,
   },
   feedbackLine: {
     lineHeight: 21,

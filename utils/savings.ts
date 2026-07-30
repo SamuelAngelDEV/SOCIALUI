@@ -1,6 +1,6 @@
 import { PlatformId } from '@/constants/platforms';
 import { DayStats } from '@/store/statsStore';
-import { Category, dayKey, formatDuration } from './stats';
+import { Category, formatDuration, lastNDayKeys } from './stats';
 
 /**
  * Which of OUR logged time categories a feature would remove, per platform.
@@ -37,16 +37,6 @@ const IMPACT: Partial<Record<PlatformId, Record<string, Category[]>>> = {
 
 const MIN_DAYS_OF_DATA = 3;
 const MIN_MS_TO_MENTION = 60_000; // under a minute isn't worth a line
-
-function lastNDayKeys(n: number, endOffset = 0): string[] {
-  const keys: string[] = [];
-  for (let i = endOffset; i < n + endOffset; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    keys.push(dayKey(d));
-  }
-  return keys;
-}
 
 function sumCategories(
   days: Record<string, DayStats>,
