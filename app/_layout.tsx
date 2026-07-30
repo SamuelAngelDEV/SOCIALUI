@@ -5,21 +5,30 @@ import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
   useFonts,
+  Inter_300Light,
   Inter_400Regular,
   Inter_500Medium,
   Inter_600SemiBold,
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
+import {
+  Newsreader_400Regular,
+  Newsreader_400Regular_Italic,
+} from '@expo-google-fonts/newsreader';
 import { Colors } from '@/constants/colors';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
+    Inter_300Light,
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
+    // Display face — see Typography.statement / Typography.quote.
+    Newsreader_400Regular,
+    Newsreader_400Regular_Italic,
   });
 
   useEffect(() => {

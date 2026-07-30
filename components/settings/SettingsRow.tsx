@@ -53,8 +53,8 @@ export function SettingsRow({
           <Switch
             value={value}
             onValueChange={onValueChange}
-            trackColor={{ true: Colors.switchOn, false: '#E4E4E1' }}
-            ios_backgroundColor="#E4E4E1"
+            trackColor={{ true: Colors.switchOn, false: Colors.switchOff }}
+            ios_backgroundColor={Colors.switchOff}
           />
         )}
         {accessory === 'metric' && (
@@ -63,8 +63,8 @@ export function SettingsRow({
             onValueChange={(on) =>
               onMetricChange?.(on ? 'hidden-number' : 'visible')
             }
-            trackColor={{ true: Colors.switchOn, false: '#E4E4E1' }}
-            ios_backgroundColor="#E4E4E1"
+            trackColor={{ true: Colors.switchOn, false: Colors.switchOff }}
+            ios_backgroundColor={Colors.switchOff}
             disabled={disabled}
           />
         )}
@@ -90,8 +90,8 @@ export function SettingsRow({
               onValueChange={(on) =>
                 onMetricChange?.(on ? 'hidden-both' : 'hidden-number')
               }
-              trackColor={{ true: Colors.switchOn, false: '#E4E4E1' }}
-              ios_backgroundColor="#E4E4E1"
+              trackColor={{ true: Colors.switchOn, false: Colors.switchOff }}
+              ios_backgroundColor={Colors.switchOff}
               disabled={disabled}
             />
           </View>
@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
   },
   alwaysOnPill: {
-    backgroundColor: 'rgba(52,199,89,0.12)',
+    backgroundColor: Colors.pillSubtle,
     paddingHorizontal: 10,
     paddingVertical: Spacing.xs,
     borderRadius: Radii.pill,

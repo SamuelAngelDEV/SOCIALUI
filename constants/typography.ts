@@ -2,6 +2,40 @@ import { TextStyle } from 'react-native';
 import { Colors } from './colors';
 
 export const Typography = {
+  /**
+   * Newsreader, used with restraint — the one sentence or number that carries a
+   * screen. Roughly four display placements per screen, maximum. Every premium
+   * app in the category has a display face with a point of view; every cheap one
+   * uses the system font.
+   */
+  statement: {
+    fontFamily: 'Newsreader_400Regular',
+    fontSize: 30,
+    letterSpacing: -0.4,
+    color: Colors.textPrimary,
+  },
+  /** Newsreader italic — a Rhythm finding, a session verdict. Never a paragraph. */
+  quote: {
+    fontFamily: 'Newsreader_400Regular_Italic',
+    fontSize: 19,
+    color: Colors.primary,
+  },
+  /**
+   * Hero figure. Weight contrast, not size alone, is what reads considered — a
+   * light weight at a large size looks deliberate where bold looks shouty.
+   */
+  figureXL: {
+    fontFamily: 'Inter_300Light',
+    fontSize: 44,
+    letterSpacing: -1.2,
+    color: Colors.textPrimary,
+  },
+  figureLG: {
+    fontFamily: 'Inter_300Light',
+    fontSize: 32,
+    letterSpacing: -0.8,
+    color: Colors.textPrimary,
+  },
   largeTitle: {
     fontFamily: 'Inter_700Bold',
     fontSize: 28,

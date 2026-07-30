@@ -43,8 +43,8 @@ export function PlatformSection({ platform }: Props) {
           <Switch
             value={enabled}
             onValueChange={(v) => setPlatformEnabled(platform.id, v)}
-            trackColor={{ true: Colors.switchOn, false: '#E4E4E1' }}
-            ios_backgroundColor="#E4E4E1"
+            trackColor={{ true: Colors.switchOn, false: Colors.switchOff }}
+            ios_backgroundColor={Colors.switchOff}
             style={styles.masterSwitch}
           />
         )}
