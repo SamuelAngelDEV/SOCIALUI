@@ -8,63 +8,99 @@ type Props = {
   platform: PlatformConfig;
   width: number;
   comingSoon?: boolean;
+  todayMs?: number;
+  activeCount?: number;
   onPress: () => void;
 };
 
-const LOGO_SIZE = 62;
+const LOGO_SIZE = 48;
 
-export function PlatformTile({ platform, width, comingSoon, onPress }: Props) {
+function formatMs(ms: number): string {
+  const min = Math.round(ms / 60000);
+  if (min < 1) return '<1m';
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+export function PlatformTile({
+  platform,
+  width,
+  comingSoon,
+  todayMs,
+  activeCount,
+  onPress,
+}: Props) {
   const blockOnly = platform.kind === 'block-only';
+  const hasTime = todayMs !== undefined && todayMs > 0;
 
   return (
     <Pressable
       style={[styles.tile, { width }, comingSoon && styles.tileDimmed]}
       onPress={onPress}
     >
-      <View style={comingSoon ? { opacity: 0.4 } : undefined}>
+      <View style={styles.topRow}>
         <PlatformLogo platform={platform.id} size={LOGO_SIZE} />
         {!comingSoon && platform.beta && (
           <View style={styles.betaBadge}>
-            <Text style={styles.betaText}>BETA</Text>
+            <Text style={styles.badgeText}>BETA</Text>
           </View>
         )}
         {!comingSoon && blockOnly && (
           <View style={styles.blockBadge}>
-            <Text style={styles.blockText}>BLOCK ONLY</Text>
+            <Text style={styles.badgeText}>BLOCK ONLY</Text>
           </View>
         )}
         {comingSoon && (
           <View style={styles.comingSoonBadge}>
-            <Text style={styles.comingSoonText}>SOON</Text>
+            <Text style={styles.badgeText}>SOON</Text>
           </View>
         )}
       </View>
-      <Text style={[Typography.tileLabel, styles.label, comingSoon && styles.dimmedText]}>
-        {platform.name}
-      </Text>
+
+      <View style={styles.info}>
+        <Text style={[Typography.headline, comingSoon && styles.dimmedText]}>
+          {platform.name}
+        </Text>
+        {!comingSoon && hasTime && (
+          <Text style={styles.statText}>{formatMs(todayMs)} today</Text>
+        )}
+        {!comingSoon && !hasTime && activeCount !== undefined && activeCount > 0 && (
+          <Text style={styles.statText}>
+            {activeCount} filter{activeCount !== 1 ? 's' : ''} active
+          </Text>
+        )}
+        {comingSoon && (
+          <Text style={styles.statText}>Coming soon</Text>
+        )}
+      </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   tile: {
-    aspectRatio: 1,
     backgroundColor: Colors.surface,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
     padding: 16,
     shadowColor: '#000',
     shadowOpacity: 0.04,
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
   },
-  label: {
-    marginTop: 12,
+  topRow: {
+    marginBottom: 14,
   },
-  // Red sticker at the lower-left of the icon, as in SocialLite.
+  info: {
+    gap: 2,
+  },
+  statText: {
+    ...Typography.callout,
+    color: Colors.textTertiary,
+  },
   betaBadge: {
     position: 'absolute',
     bottom: -6,
@@ -73,12 +109,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 5,
-  },
-  betaText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 9,
-    letterSpacing: 0.4,
-    color: '#FFFFFF',
   },
   blockBadge: {
     position: 'absolute',
@@ -89,7 +119,16 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 5,
   },
-  blockText: {
+  comingSoonBadge: {
+    position: 'absolute',
+    bottom: -6,
+    left: -6,
+    backgroundColor: Colors.textTertiary,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
+  badgeText: {
     fontFamily: 'Inter_700Bold',
     fontSize: 9,
     letterSpacing: 0.4,
@@ -100,20 +139,5 @@ const styles = StyleSheet.create({
   },
   dimmedText: {
     color: Colors.textTertiary,
-  },
-  comingSoonBadge: {
-    position: 'absolute',
-    bottom: -6,
-    left: -6,
-    backgroundColor: Colors.textTertiary,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 5,
-  },
-  comingSoonText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 9,
-    letterSpacing: 0.4,
-    color: '#FFFFFF',
   },
 });
