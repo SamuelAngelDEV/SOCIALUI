@@ -11,6 +11,7 @@ import {
   MetricVisibility,
 } from '@/constants/features';
 import { dayKey } from '@/utils/stats';
+import { PRESETS } from '@/constants/presets';
 
 type PlatformSettings = Record<string, boolean | MetricVisibility>;
 
@@ -30,6 +31,8 @@ const MASTER_DEFAULTS: MasterSettings = {
 };
 
 type SettingsState = {
+  onboarded: boolean;
+  goals: string[];
   platformEnabled: Record<PlatformId, boolean>;
   platformSettings: Record<PlatformId, PlatformSettings>;
   /** How many posts before "Limit Feed" stops the feed, per platform. */
@@ -39,6 +42,9 @@ type SettingsState = {
   toggleEnabledAt: Partial<Record<PlatformId, Record<string, string>>>;
   _hasHydrated: boolean;
   setHasHydrated: (value: boolean) => void;
+  setOnboarded: (value: boolean) => void;
+  setGoals: (goals: string[]) => void;
+  applyPreset: (presetId: string) => void;
   setToggle: (platform: PlatformId, key: string, value: boolean) => void;
   setMetricToggle: (platform: PlatformId, key: string, value: MetricVisibility) => void;
   setPlatformEnabled: (platform: PlatformId, value: boolean) => void;
@@ -67,6 +73,8 @@ const initial = allDefaults();
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
+      onboarded: false,
+      goals: [],
       platformEnabled: initial.enabled,
       platformSettings: initial.settings,
       feedLimits: initial.limits,
@@ -74,6 +82,33 @@ export const useSettingsStore = create<SettingsState>()(
       toggleEnabledAt: {},
       _hasHydrated: false,
       setHasHydrated: (value) => set({ _hasHydrated: value }),
+      setOnboarded: (value) => set({ onboarded: value }),
+      setGoals: (goals) => set({ goals }),
+
+      applyPreset: (presetId) =>
+        set((state) => {
+          const preset = PRESETS.find((p) => p.id === presetId);
+          if (!preset) return {};
+          const newSettings = { ...state.platformSettings };
+          const newLimits = { ...state.feedLimits };
+          for (const id of PLATFORM_ORDER) {
+            if (!state.platformEnabled[id]) continue;
+            const merged = { ...newSettings[id] };
+            for (const [key, val] of Object.entries(preset.settings)) {
+              if (key in merged) merged[key] = val;
+            }
+            newSettings[id] = merged;
+            if (preset.feedLimit) newLimits[id] = preset.feedLimit;
+          }
+          return {
+            platformSettings: newSettings,
+            feedLimits: newLimits,
+            masterSettings: {
+              ...state.masterSettings,
+              ...(preset.masterOverrides ?? {}),
+            },
+          };
+        }),
 
       setMasterToggle: (key, value) =>
         set((state) => ({
@@ -132,6 +167,8 @@ export const useSettingsStore = create<SettingsState>()(
       storage: createJSONStorage(() => AsyncStorage),
       // Persist only user data, not the hydration flag or actions.
       partialize: (state) => ({
+        onboarded: state.onboarded,
+        goals: state.goals,
         platformEnabled: state.platformEnabled,
         platformSettings: state.platformSettings,
         feedLimits: state.feedLimits,
@@ -180,6 +217,8 @@ export const useSettingsStore = create<SettingsState>()(
         }
         return {
           ...current,
+          onboarded: saved.onboarded ?? false,
+          goals: saved.goals ?? [],
           platformEnabled: { ...current.platformEnabled, ...(saved.platformEnabled ?? {}) },
           platformSettings: mergedSettings,
           feedLimits: mergedLimits,

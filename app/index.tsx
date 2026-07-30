@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,6 +8,7 @@ import { COMING_SOON } from '@/constants/features';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
 import { PlatformTile } from '@/components/PlatformTile';
+import { useSettingsStore } from '@/store/settingsStore';
 import { useStatsStore } from '@/store/statsStore';
 import { weekKey } from '@/utils/stats';
 
@@ -17,6 +19,15 @@ export default function Home() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+
+  const hydrated = useSettingsStore((s) => s._hasHydrated);
+  const onboarded = useSettingsStore((s) => s.onboarded);
+
+  useEffect(() => {
+    if (hydrated && !onboarded) {
+      router.replace('/onboarding');
+    }
+  }, [hydrated, onboarded, router]);
 
   const tileWidth = (width - SCREEN_MARGIN * 2 - GRID_GAP) / 2;
 

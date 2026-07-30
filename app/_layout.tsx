@@ -38,6 +38,7 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="index" />
+        <Stack.Screen name="onboarding" options={{ animation: 'none' }} />
         <Stack.Screen name="settings" />
         <Stack.Screen name="insights" />
         <Stack.Screen name="platform/[id]" />
