@@ -14,7 +14,6 @@ import { Typography } from '@/constants/typography';
 import { LimitReachedOverlay } from '@/components/LimitReachedOverlay';
 import { SessionSummaryOverlay } from '@/components/SessionSummaryOverlay';
 
-const LIMIT_EXTEND_BY = 10;
 // Sessions shorter than this close without a summary — not worth interrupting for.
 const SUMMARY_MIN_MS = 5000;
 
@@ -160,12 +159,9 @@ export default function PlatformView() {
   };
 
   const extendLimit = () => {
-    const base = sessionLimitRef.current ?? feedLimit ?? 10;
-    const next = base + LIMIT_EXTEND_BY;
-    sessionLimitRef.current = next;
     setExtendCount((c) => c + 1);
     webRef.current?.injectJavaScript(
-      `window.__quietSetLimit && window.__quietSetLimit(${next}); true;`
+      'window.__quietDisableLimit && window.__quietDisableLimit(); true;'
     );
     setWallVisible(false);
   };

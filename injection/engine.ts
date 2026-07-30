@@ -329,6 +329,33 @@ export function buildScript(args: BuildScriptArgs): string {
             }
           }
         }
+        if (hideDmBadges && dmBadgeSelector) {
+          var dmLinks = document.querySelectorAll(dmBadgeSelector);
+          for (var d = 0; d < dmLinks.length; d++) {
+            var inner = dmLinks[d].querySelectorAll('span, div');
+            for (var j = 0; j < inner.length; j++) {
+              var bel = inner[j];
+              if (bel.getAttribute('data-quiet-badge')) continue;
+              if (bel.querySelector && bel.querySelector('svg, img, a')) continue;
+              var bt = (bel.textContent || '').trim();
+              if (bt.length > 3) continue;
+              if (bt && !/^\d+\+?$/.test(bt)) continue;
+              var brect = bel.getBoundingClientRect();
+              if (brect.width > 0 && brect.width <= 46 && brect.height <= 30) {
+                var bbg = getComputedStyle(bel).backgroundColor;
+                var bbefore = getComputedStyle(bel, '::before').backgroundColor;
+                var bafter = getComputedStyle(bel, '::after').backgroundColor;
+                var isRed = function(c) {
+                  var cm = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                  return cm && +cm[1] > 190 && +cm[2] < 95 && +cm[3] < 95;
+                };
+                if (isRed(bbg) || isRed(bbefore) || isRed(bafter)) {
+                  toHide.push(bel);
+                }
+              }
+            }
+          }
+        }
         for (var h = 0; h < toHide.length; h++) {           // writes, after all reads
           toHide[h].setAttribute('data-quiet-badge', '1');
           toHide[h].style.setProperty('display', 'none', 'important');
@@ -422,6 +449,16 @@ export function buildScript(args: BuildScriptArgs): string {
           var cs = document.getElementById('quiet-cap-style');
           if (cs) cs.remove();
           runPasses();
+        } catch (e) {}
+      };
+
+      window.__quietDisableLimit = function() {
+        try {
+          limitActive = false;
+          isCapped = false;
+          wallSignaled = true;
+          var cs = document.getElementById('quiet-cap-style');
+          if (cs) cs.remove();
         } catch (e) {}
       };
 

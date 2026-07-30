@@ -75,11 +75,6 @@ export const RULES: Rule[] = [
       'a[href^="/direct/"] span[aria-label*="new message" i]',
       '[aria-label*="unread message" i]',
       'a[href^="/direct/"] span[aria-label*="notification" i]',
-      // Bottom nav DM icon: Instagram renders the unread count as a small
-      // absolutely-positioned div/span with a red background inside or near
-      // the messages link. Target by aria-label on the messenger icon's parent.
-      'a[href^="/direct/"] [aria-label*="message" i] ~ span',
-      'a[href="/direct/inbox/"] [aria-label*="message" i] ~ span',
     ],
   },
   {
@@ -137,6 +132,12 @@ export const RULES: Rule[] = [
       'div[role="button"]:has(> svg[aria-label="Comment"])',
       'a:has(> svg[aria-label="Comment"])',
     ],
+    textHide: {
+      probe: 'span, a, div[role="button"]',
+      match: ['^view all \\d+ comments?$', '^view \\d+ comments?$', '^\\d+ comments?$'],
+      regex: true,
+      closest: 'span, a, div[role="button"], li',
+    },
   },
   {
     key: 'hideShareButton',
