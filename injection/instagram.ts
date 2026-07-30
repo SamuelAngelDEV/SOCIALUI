@@ -43,7 +43,21 @@ export const RULES: Rule[] = [
   },
   {
     key: 'blockStories',
-    css: ['div[role="menu"]:has(canvas)', 'ul:has(> li canvas)'],
+    css: [
+      // Legacy canvas-based ring
+      'div[role="menu"]:has(canvas)',
+      'ul:has(> li canvas)',
+      // Stories tray by link href
+      'section:has(a[href^="/stories/"])',
+      'div:has(> ul a[href^="/stories/"]):not(main)',
+      'ul:has(> li a[href^="/stories/"])',
+      // Tray by aria-label
+      '[aria-label="Stories"]',
+      '[aria-label="Stories Tray"]',
+      'div[role="listbox"]:has(a[href^="/stories/"])',
+      // "Your story" create button in tray
+      'a[href="/stories/create/"]',
+    ],
   },
   {
     // Belt-and-suspenders CSS for badge overlays with stable aria labels. These
@@ -150,6 +164,11 @@ const GUARDS: RouteGuard[] = [
   {
     key: 'blockReels',
     redirectPrefixes: ['/reels'],
+    to: '/',
+  },
+  {
+    key: 'blockStories',
+    redirectPrefixes: ['/stories'],
     to: '/',
   },
   {
