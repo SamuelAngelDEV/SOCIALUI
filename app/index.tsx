@@ -7,6 +7,7 @@ import { PLATFORM_LIST, PlatformConfig, PlatformId } from '@/constants/platforms
 import { COMING_SOON, FEATURES } from '@/constants/features';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
+import { Strings } from '@/constants/strings';
 import { PlatformTile } from '@/components/PlatformTile';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useStatsStore } from '@/store/statsStore';
@@ -88,8 +89,8 @@ export default function Home() {
     <View style={[styles.container, { paddingTop: insets.top + 24 }]}>
       <View style={styles.header}>
         <View>
-          <Text style={Typography.largeTitle}>Quiet</Text>
-          <Text style={[Typography.callout, styles.subtitle]}>less noise, more signal</Text>
+          <Text style={Typography.statement}>{Strings.app.name}</Text>
+          <Text style={[Typography.callout, styles.subtitle]}>{Strings.app.tagline}</Text>
         </View>
         <View style={styles.headerIcons}>
           <Pressable onPress={() => router.push('/insights')} hitSlop={12}>
