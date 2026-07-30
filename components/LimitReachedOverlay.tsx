@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Hourglass } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
@@ -7,16 +7,28 @@ import { Typography } from '@/constants/typography';
 type Props = {
   platformName: string;
   limit: number;
+  extendCount: number;
+  sessionSeconds: number;
   onDone: () => void;
   onExtend: () => void;
 };
 
-/**
- * Full-screen native wall shown when the user hits their post limit and keeps
- * scrolling — Screen-Time style. Rendered OVER the WebView, so the page behind
- * it cannot receive any touches. Continuing is a deliberate tap, not a flick.
- */
-export function LimitReachedOverlay({ platformName, limit, onDone, onExtend }: Props) {
+function formatTime(seconds: number): string {
+  if (seconds < 60) return 'less than a minute';
+  const m = Math.floor(seconds / 60);
+  return m === 1 ? '1 minute' : `${m} minutes`;
+}
+
+export function LimitReachedOverlay({
+  platformName,
+  limit,
+  extendCount,
+  sessionSeconds,
+  onDone,
+  onExtend,
+}: Props) {
+  const cooldown = Math.min(5 + extendCount * 5, 30);
+  const [secondsLeft, setSecondsLeft] = useState(cooldown);
   const opacity = useRef(new Animated.Value(0)).current;
   const translate = useRef(new Animated.Value(16)).current;
 
@@ -26,6 +38,22 @@ export function LimitReachedOverlay({ platformName, limit, onDone, onExtend }: P
       Animated.timing(translate, { toValue: 0, duration: 250, useNativeDriver: true }),
     ]).start();
   }, [opacity, translate]);
+
+  useEffect(() => {
+    setSecondsLeft(cooldown);
+    const id = setInterval(() => {
+      setSecondsLeft((s) => {
+        if (s <= 1) {
+          clearInterval(id);
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [cooldown]);
+
+  const locked = secondsLeft > 0;
 
   return (
     <Animated.View style={[styles.overlay, { opacity }]}>
@@ -40,12 +68,24 @@ export function LimitReachedOverlay({ platformName, limit, onDone, onExtend }: P
           algorithm&apos;s idea, not yours.
         </Text>
 
+        {sessionSeconds >= 30 && (
+          <Text style={styles.timeSpent}>
+            You&apos;ve spent {formatTime(sessionSeconds)} here
+          </Text>
+        )}
+
         <Pressable style={styles.primaryBtn} onPress={onDone}>
           <Text style={styles.primaryText}>I&apos;m done</Text>
         </Pressable>
 
-        <Pressable style={styles.secondaryBtn} onPress={onExtend}>
-          <Text style={styles.secondaryText}>Show 10 more posts</Text>
+        <Pressable
+          style={[styles.secondaryBtn, locked && styles.secondaryBtnLocked]}
+          onPress={locked ? undefined : onExtend}
+          disabled={locked}
+        >
+          <Text style={[styles.secondaryText, locked && styles.secondaryTextLocked]}>
+            {locked ? `Wait ${secondsLeft}s...` : 'Keep scrolling'}
+          </Text>
         </Pressable>
       </Animated.View>
     </Animated.View>
@@ -84,6 +124,12 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 32,
   },
+  timeSpent: {
+    ...Typography.callout,
+    textAlign: 'center',
+    color: Colors.textSecondary,
+    marginBottom: 24,
+  },
   primaryBtn: {
     alignSelf: 'stretch',
     backgroundColor: Colors.primary,
@@ -105,8 +151,15 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     alignItems: 'center',
   },
+  secondaryBtnLocked: {
+    backgroundColor: Colors.groupedBackground,
+    borderColor: Colors.separator,
+  },
   secondaryText: {
     ...Typography.headline,
     color: Colors.textPrimary,
+  },
+  secondaryTextLocked: {
+    color: Colors.textTertiary,
   },
 });

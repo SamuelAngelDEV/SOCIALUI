@@ -60,15 +60,12 @@ export const RULES: Rule[] = [
     ],
   },
   {
-    // Belt-and-suspenders CSS for badge overlays with stable aria labels. These
-    // target the RED BADGE text/bubble only — never the icon or link — so the
-    // activity and messages buttons stay visible and tappable. The scanner in
-    // the engine is the robust fallback for badges without aria labels.
     key: 'hideBadges',
     css: [
       'span[aria-label*="new notification" i]',
       'span[aria-label*="unread notification" i]',
       '[aria-label*="new activity" i]',
+      'span[aria-label*="notification" i]',
     ],
   },
   {
@@ -77,25 +74,30 @@ export const RULES: Rule[] = [
       'a[href^="/direct/"] span[aria-label*="unread" i]',
       'a[href^="/direct/"] span[aria-label*="new message" i]',
       '[aria-label*="unread message" i]',
+      'a[href^="/direct/"] span[aria-label*="notification" i]',
+      // Bottom nav DM icon: Instagram renders the unread count as a small
+      // absolutely-positioned div/span with a red background inside or near
+      // the messages link. Target by aria-label on the messenger icon's parent.
+      'a[href^="/direct/"] [aria-label*="message" i] ~ span',
+      'a[href="/direct/inbox/"] [aria-label*="message" i] ~ span',
     ],
   },
   {
     key: 'blockSuggested',
-    // The header label is EXACTLY this text; exact match so a caption that merely
-    // mentions "suggested for you" can't hide a real post.
     textHide: {
-      probe: 'span, h2, h3',
-      match: ['suggested for you', 'suggested posts', 'suggested reels'],
+      probe: 'span, h2, h3, div',
+      match: ['suggested for you', 'suggested posts', 'suggested reels', 'more posts from'],
       exact: true,
-      closest: 'article',
+      closest: 'article, div:has(> article)',
     },
   },
   {
     key: 'blockSponsored',
+    css: ['article:has(a[href*="/ads/"])'],
     textHide: {
-      probe: 'span, a',
-      match: ['sponsored', 'paid partnership'],
-      exact: true,
+      probe: 'span, a, div',
+      match: ['^sponsored$', '^paid partnership'],
+      regex: true,
       closest: 'article',
     },
   },
@@ -302,7 +304,7 @@ export const instagramAdapter: PlatformAdapter = {
   limitPath: '/',
   badgeKey: 'hideBadges',
   dmBadgeKey: 'hideDmBadges',
-  dmBadgeSelector: 'a[href^="/direct/"], a[href="/direct/inbox/"]',
+  dmBadgeSelector: 'a[href^="/direct/"], a[href="/direct/inbox/"], div:has(> a[href^="/direct/"]), li:has(a[href^="/direct/"])',
   preamble: dmReelGuard,
 };
 

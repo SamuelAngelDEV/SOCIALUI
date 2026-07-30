@@ -43,6 +43,8 @@ export default function PlatformView() {
   // deliberately not persisted — next visit starts back at the saved slider value.
   const [wallVisible, setWallVisible] = useState(false);
   const sessionLimitRef = useRef<number | null>(null);
+  const [extendCount, setExtendCount] = useState(0);
+  const [sessionSeconds, setSessionSeconds] = useState(0);
 
   // ---- Local time tracking (never leaves the device) ----
   const addTime = useStatsStore((s) => s.addTime);
@@ -114,6 +116,7 @@ export default function PlatformView() {
     setLoading(true);
     setWallVisible(false);
     sessionLimitRef.current = null;
+    setExtendCount(0);
     setReloadKey((k) => k + 1);
   };
 
@@ -123,6 +126,10 @@ export default function PlatformView() {
       const msg = JSON.parse(event.nativeEvent.data);
       if (!msg) return;
       if (msg.type === 'quiet-limit-reached') {
+        commitSegment();
+        const agg = sessionAggRef.current;
+        const total = Object.values(agg).reduce((a, b) => a + (b ?? 0), 0);
+        setSessionSeconds(Math.floor(total / 1000));
         setWallVisible(true);
       } else if (msg.type === 'quiet-health') {
         if (__DEV__) {
@@ -156,6 +163,7 @@ export default function PlatformView() {
     const base = sessionLimitRef.current ?? feedLimit ?? 10;
     const next = base + LIMIT_EXTEND_BY;
     sessionLimitRef.current = next;
+    setExtendCount((c) => c + 1);
     webRef.current?.injectJavaScript(
       `window.__quietSetLimit && window.__quietSetLimit(${next}); true;`
     );
@@ -250,6 +258,8 @@ export default function PlatformView() {
           <LimitReachedOverlay
             platformName={config.name}
             limit={sessionLimitRef.current ?? feedLimit ?? 10}
+            extendCount={extendCount}
+            sessionSeconds={sessionSeconds}
             onDone={closePlatform}
             onExtend={extendLimit}
           />

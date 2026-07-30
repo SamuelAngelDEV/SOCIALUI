@@ -247,15 +247,13 @@ export function buildScript(args: BuildScriptArgs): string {
       // told the app once for this cap (reset when the limit is raised).
       var isCapped = false;
       var wallSignaled = false;
+      var wallGraceUntil = 0;
 
       function maybeSignalWall() {
         if (!isCapped || wallSignaled) return;
+        if (Date.now() < wallGraceUntil) return;
         var seenAll = false;
         if (canMeasure) {
-          // Fire only when the LAST kept post has actually been seen: its bottom
-          // edge entered the viewport (or was scrolled past). Immune to the
-          // site's scrollHeight jumping around, which made the old proximity
-          // check fire randomly mid-feed.
           var kept = document.querySelectorAll('[data-quiet-keep]');
           var last = kept[kept.length - 1];
           if (!last) return;
@@ -420,6 +418,7 @@ export function buildScript(args: BuildScriptArgs): string {
           limitCount = n;
           wallSignaled = false;
           isCapped = false;
+          wallGraceUntil = Date.now() + 2000;
           var cs = document.getElementById('quiet-cap-style');
           if (cs) cs.remove();
           runPasses();
