@@ -7,6 +7,13 @@ export type Rule = {
    *  Only applied when the metric is set to 'hidden-both'. */
   controlCss?: string[];
   /**
+   * Selectors whose clicks are swallowed at the capture phase while the rule is
+   * on. Hiding an element with CSS only works if we found it; a route guard only
+   * fires after navigation has already happened. This stops the tap itself, so
+   * the target never opens even when both of those miss.
+   */
+  clickBlock?: string[];
+  /**
    * JS text pass, used where `:contains()` would be needed (not valid CSS).
    * Scans small `probe` elements; on a text hit, hides `el.closest(closest)`
    * (falls back to the probe itself). Matching is case-insensitive against the
@@ -126,6 +133,15 @@ export function buildScript(args: BuildScriptArgs): string {
     css += `\nhtml { filter: grayscale(1) !important; }`;
   }
 
+  // Selectors whose taps get swallowed. Same activation test as the CSS above.
+  // Kept as an array so the runtime can drop individually unparseable entries.
+  const clickBlockSelectors = rules
+    .filter((r) => {
+      const v = config[r.key];
+      return v && v !== 'visible' && r.clickBlock?.length;
+    })
+    .flatMap((r) => r.clickBlock ?? []);
+
   // No CSS nth-of-type cap: it miscounts skeleton posts and only works when
   // items are siblings. applyFeedLimit() caps by real, loaded posts instead.
   // No in-feed end message either — the full-screen native wall is the only
@@ -181,6 +197,7 @@ export function buildScript(args: BuildScriptArgs): string {
       var limitRequireDescendant = ${JSON.stringify(limitRequireDescendant || '')};
       var limitPath = ${JSON.stringify(limitPath || '')};
       var capHideRule = ${JSON.stringify(capHideRule)};
+      var clickBlockSelectors = ${JSON.stringify(clickBlockSelectors)};
 
       function ensureStyle() {
         if (document.getElementById('quiet-blocks')) return;
@@ -248,6 +265,9 @@ export function buildScript(args: BuildScriptArgs): string {
       var isCapped = false;
       var wallSignaled = false;
       var wallGraceUntil = 0;
+      // Running count of posts we've marked this feed session. Monotonic on
+      // purpose — see applyFeedLimit().
+      var markedTotal = 0;
 
       function maybeSignalWall() {
         if (!isCapped || wallSignaled) return;
@@ -339,14 +359,14 @@ export function buildScript(args: BuildScriptArgs): string {
               if (bel.querySelector && bel.querySelector('svg, img, a')) continue;
               var bt = (bel.textContent || '').trim();
               if (bt.length > 3) continue;
-              if (bt && !/^\d+\+?$/.test(bt)) continue;
+              if (bt && !/^\\d+\\+?$/.test(bt)) continue;
               var brect = bel.getBoundingClientRect();
               if (brect.width > 0 && brect.width <= 46 && brect.height <= 30) {
                 var bbg = getComputedStyle(bel).backgroundColor;
                 var bbefore = getComputedStyle(bel, '::before').backgroundColor;
                 var bafter = getComputedStyle(bel, '::after').backgroundColor;
                 var isRed = function(c) {
-                  var cm = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                  var cm = c.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/);
                   return cm && +cm[1] > 190 && +cm[2] < 95 && +cm[3] < 95;
                 };
                 if (isRed(bbg) || isRed(bbefore) || isRed(bafter)) {
@@ -406,20 +426,40 @@ export function buildScript(args: BuildScriptArgs): string {
           return;
         }
 
-        var keptCount = document.querySelectorAll('[data-quiet-keep]').length;
+        // Instagram virtualizes off-screen posts OUT of the DOM, so counting
+        // [data-quiet-keep] live walks the total backwards and the cap never
+        // latches — the fill loop just keeps topping it up forever. That is why
+        // a limit of 5 worked (reached before virtualization kicks in) while 10
+        // scrolled without end. markedTotal only ever increments.
+        var liveKept = document.querySelectorAll('[data-quiet-keep]').length;
+
+        // An SPA navigation back to the feed rebuilds it and wipes every mark.
+        // Without this, the cap style would hide an entirely unmarked feed and
+        // leave the user staring at nothing. Capped with zero marks left means a
+        // rebuild, not virtualization: while capped the kept posts are the only
+        // visible content, so they cannot all scroll away.
+        if (markedTotal >= limitCount && liveKept === 0) {
+          markedTotal = 0;
+          isCapped = false;
+          wallSignaled = false;
+          if (capStyleEl) {
+            capStyleEl.remove();
+            capStyleEl = null;
+          }
+        }
 
         // Fill remaining slots with eligible (visible, unhidden) posts, in order.
-        if (keptCount < limitCount) {
+        if (markedTotal < limitCount) {
           var all = document.querySelectorAll(limitSelector);
-          for (var i = 0; i < all.length && keptCount < limitCount; i++) {
+          for (var i = 0; i < all.length && markedTotal < limitCount; i++) {
             if (isEligiblePost(all[i])) {
               all[i].setAttribute('data-quiet-keep', '1');
-              keptCount++;
+              markedTotal++;
             }
           }
         }
 
-        if (keptCount < limitCount) return;      // not at the cap yet
+        if (markedTotal < limitCount) return;    // not at the cap yet
 
         if (!capStyleEl) {
           var capStyle = document.createElement('style');
@@ -565,6 +605,47 @@ export function buildScript(args: BuildScriptArgs): string {
 
         // Capture-phase so inner scroll containers count too.
         window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+
+        // Swallow taps on blocked targets. CSS only helps if our selector found
+        // the element, and the route guard only fires after navigation has
+        // already started — by then the story viewer is open. Capture phase on
+        // document runs before the site's own React handlers, so the open never
+        // begins. Registered once, and only when a rule actually asked for it.
+        if (clickBlockSelectors.length) {
+          // Drop selectors this engine can't parse. closest() throws on an
+          // unsupported form (:has() on an older WebView), which would otherwise
+          // take every working selector down with it.
+          var usableClick = [];
+          for (var ci = 0; ci < clickBlockSelectors.length; ci++) {
+            try {
+              document.querySelector(clickBlockSelectors[ci]);
+              usableClick.push(clickBlockSelectors[ci]);
+            } catch (err) {}
+          }
+          var clickSel = usableClick.join(', ');
+
+          if (clickSel) {
+            var swallow = function(e) {
+              try {
+                var t = e.target;
+                if (!t) return;
+                // Text nodes have no closest(); climb to the nearest element.
+                if (t.nodeType !== 1 && t.parentElement) t = t.parentElement;
+                if (!t || !t.closest) return;
+                if (t.closest(clickSel)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+                }
+              } catch (err) {}
+            };
+            // pointerdown/touchstart included because the site may open on press
+            // rather than waiting for a full click. Not passive — we preventDefault.
+            document.addEventListener('click', swallow, true);
+            document.addEventListener('pointerdown', swallow, true);
+            document.addEventListener('touchstart', swallow, { capture: true, passive: false });
+          }
+        }
 
         // Stay out of the way until the feed has had time to load.
         if (document.readyState === 'complete') {

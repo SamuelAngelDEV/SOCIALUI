@@ -58,6 +58,14 @@ export const RULES: Rule[] = [
       // "Your story" create button in tray
       'a[href="/stories/create/"]',
     ],
+    // The CSS above only hides trays we managed to match, and the route guard
+    // fires after the viewer has already opened. This stops the tap itself, so
+    // a story ring that slipped past both still refuses to open.
+    clickBlock: [
+      'a[href^="/stories/"]',
+      'a[href*="/stories/"]',
+      '[role="button"][tabindex]:has(canvas)',
+    ],
   },
   {
     key: 'hideBadges',
