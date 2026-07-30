@@ -15,7 +15,6 @@ import {
   Heart,
   Hourglass,
   Lock,
-  MessageCircle,
   Settings,
   Shield,
   Smartphone,
@@ -23,22 +22,26 @@ import {
 } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
+import { Radii, Size, Spacing } from '@/constants/spacing';
+import { Strings } from '@/constants/strings';
 import { PRESETS, presetForGoals } from '@/constants/presets';
 import { useSettingsStore } from '@/store/settingsStore';
 
+const COPY = Strings.onboarding;
+
 const GOALS = [
-  { id: 'scrolling', label: 'Endless scrolling', Icon: ScrollText },
-  { id: 'reels', label: 'Reels & Shorts', Icon: Film },
-  { id: 'counts', label: 'Like & follower counts', Icon: Heart },
-  { id: 'time', label: 'Losing track of time', Icon: Clock },
-  { id: 'habit', label: 'Opening apps out of habit', Icon: Smartphone },
+  { id: 'scrolling', label: COPY.goals.scrolling, Icon: ScrollText },
+  { id: 'reels', label: COPY.goals.reels, Icon: Film },
+  { id: 'counts', label: COPY.goals.counts, Icon: Heart },
+  { id: 'time', label: COPY.goals.time, Icon: Clock },
+  { id: 'habit', label: COPY.goals.habit, Icon: Smartphone },
 ] as const;
 
 const REASSURANCES = [
-  { Icon: Shield, text: 'Your DMs still work' },
-  { Icon: Lock, text: 'Nothing leaves your phone' },
-  { Icon: Settings, text: 'Change any setting, anytime' },
-  { Icon: Hourglass, text: 'Your feed now has an ending' },
+  { Icon: Shield, text: COPY.done.dmsWork },
+  { Icon: Lock, text: COPY.done.staysOnDevice },
+  { Icon: Settings, text: COPY.done.reversible },
+  { Icon: Hourglass, text: COPY.done.feedEnds },
 ] as const;
 
 export default function Onboarding() {
@@ -95,16 +98,20 @@ export default function Onboarding() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 24 }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          paddingTop: insets.top + Spacing.xxxl,
+          paddingBottom: insets.bottom + Spacing.xxl,
+        },
+      ]}
+    >
       <Animated.View style={[styles.stepWrap, { transform: [{ translateX: slideX }] }]}>
         {step === 0 && (
           <View style={styles.step}>
-            <Text style={[Typography.largeTitle, styles.title]}>
-              What&apos;s pulling you in?
-            </Text>
-            <Text style={[Typography.body, styles.subtitle]}>
-              Pick what you&apos;d like to change.{'\n'}We&apos;ll set things up for you.
-            </Text>
+            <Text style={[Typography.largeTitle, styles.title]}>{COPY.goals.title}</Text>
+            <Text style={[Typography.body, styles.subtitle]}>{COPY.goals.subtitle}</Text>
             <View style={styles.chipGrid}>
               {GOALS.map(({ id, label, Icon }) => {
                 const on = selectedGoals.includes(id);
@@ -133,12 +140,8 @@ export default function Onboarding() {
 
         {step === 1 && (
           <View style={styles.step}>
-            <Text style={[Typography.largeTitle, styles.title]}>
-              Pick your mode
-            </Text>
-            <Text style={[Typography.body, styles.subtitle]}>
-              Start here. Change anytime in Settings.
-            </Text>
+            <Text style={[Typography.largeTitle, styles.title]}>{COPY.presets.title}</Text>
+            <Text style={[Typography.body, styles.subtitle]}>{COPY.presets.subtitle}</Text>
             <View style={styles.presetList}>
               {PRESETS.map((preset) => {
                 const on = selectedPreset === preset.id;
@@ -160,7 +163,7 @@ export default function Onboarding() {
                       </Text>
                       {recommended && (
                         <View style={styles.recommendedBadge}>
-                          <Text style={styles.recommendedText}>Recommended</Text>
+                          <Text style={Typography.tag}>{COPY.presets.recommended}</Text>
                         </View>
                       )}
                     </View>
@@ -176,12 +179,8 @@ export default function Onboarding() {
 
         {step === 2 && (
           <View style={styles.step}>
-            <Text style={[Typography.largeTitle, styles.title]}>
-              You&apos;re all set
-            </Text>
-            <Text style={[Typography.body, styles.subtitle]}>
-              Here&apos;s what Quiet does for you.
-            </Text>
+            <Text style={[Typography.largeTitle, styles.title]}>{COPY.done.title}</Text>
+            <Text style={[Typography.body, styles.subtitle]}>{COPY.done.subtitle}</Text>
             <View style={styles.reassuranceList}>
               {REASSURANCES.map(({ Icon, text }) => (
                 <View key={text} style={styles.reassuranceRow}>
@@ -212,11 +211,11 @@ export default function Onboarding() {
             onPress={handleNext}
             disabled={step === 0 && selectedGoals.length === 0}
           >
-            <Text style={styles.nextText}>Next</Text>
+            <Text style={styles.nextText}>{COPY.next}</Text>
           </Pressable>
         ) : (
           <Pressable style={styles.nextBtn} onPress={handleFinish}>
-            <Text style={styles.nextText}>Get started</Text>
+            <Text style={styles.nextText}>{COPY.getStarted}</Text>
           </Pressable>
         )}
       </View>
@@ -228,7 +227,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    paddingHorizontal: 24,
+    paddingHorizontal: Spacing.xxl,
   },
   stepWrap: {
     flex: 1,
@@ -239,7 +238,7 @@ const styles = StyleSheet.create({
   },
   title: {
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: Spacing.sm,
   },
   subtitle: {
     textAlign: 'center',
@@ -248,15 +247,15 @@ const styles = StyleSheet.create({
     marginBottom: 36,
   },
   chipGrid: {
-    gap: 12,
+    gap: Spacing.md,
   },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: Spacing.md,
     paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Radii.md,
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: Colors.surface,
@@ -272,12 +271,12 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
   presetList: {
-    gap: 12,
+    gap: Spacing.md,
   },
   presetCard: {
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Radii.md,
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: Colors.surface,
@@ -290,46 +289,41 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: Spacing.xs,
   },
   presetDesc: {
     color: Colors.textSecondary,
   },
   recommendedBadge: {
     backgroundColor: Colors.primary,
-    paddingHorizontal: 8,
+    paddingHorizontal: Spacing.sm,
     paddingVertical: 3,
-    borderRadius: 999,
-  },
-  recommendedText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 11,
-    color: '#FFFFFF',
+    borderRadius: Radii.pill,
   },
   reassuranceList: {
-    gap: 20,
-    paddingHorizontal: 8,
+    gap: Spacing.xl,
+    paddingHorizontal: Spacing.sm,
   },
   reassuranceRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: Spacing.lg,
   },
   reassuranceIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: Size.iconCircleSm,
+    height: Size.iconCircleSm,
+    borderRadius: Radii.circleSm,
     backgroundColor: Colors.primarySubtle,
     alignItems: 'center',
     justifyContent: 'center',
   },
   footer: {
     alignItems: 'center',
-    gap: 20,
+    gap: Spacing.xl,
   },
   dots: {
     flexDirection: 'row',
-    gap: 8,
+    gap: Spacing.sm,
   },
   dot: {
     width: 8,
@@ -344,8 +338,8 @@ const styles = StyleSheet.create({
   nextBtn: {
     alignSelf: 'stretch',
     backgroundColor: Colors.primary,
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderRadius: Radii.md,
+    paddingVertical: Spacing.lg,
     alignItems: 'center',
   },
   nextBtnDisabled: {

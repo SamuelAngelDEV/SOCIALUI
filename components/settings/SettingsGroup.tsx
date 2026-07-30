@@ -2,6 +2,7 @@ import { ReactNode, Children } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
+import { Radii, Spacing } from '@/constants/spacing';
 
 type Props = {
   title?: string;
@@ -31,17 +32,17 @@ export function SettingsGroup({ title, footer, children }: Props) {
 
 const styles = StyleSheet.create({
   wrapper: {
-    marginBottom: 24,
+    marginBottom: Spacing.xxl,
   },
   title: {
     ...Typography.caption,
     color: Colors.textTertiary,
-    marginBottom: 8,
-    marginLeft: 16,
+    marginBottom: Spacing.sm,
+    marginLeft: Spacing.lg,
   },
   card: {
     backgroundColor: Colors.surface,
-    borderRadius: 16,
+    borderRadius: Radii.lg,
     borderWidth: 1,
     borderColor: Colors.border,
     overflow: 'hidden',
@@ -49,12 +50,12 @@ const styles = StyleSheet.create({
   separator: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: Colors.separator,
-    marginLeft: 16,
+    marginLeft: Spacing.lg,
   },
   footer: {
     ...Typography.callout,
     color: Colors.textTertiary,
-    marginTop: 8,
-    marginHorizontal: 16,
+    marginTop: Spacing.sm,
+    marginHorizontal: Spacing.lg,
   },
 });

@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { ChevronDown, ChevronRight } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
+import { Radii, Spacing } from '@/constants/spacing';
+import { Strings } from '@/constants/strings';
 import { PlatformConfig } from '@/constants/platforms';
 import { FEATURES, COMING_SOON, MetricVisibility } from '@/constants/features';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -59,7 +61,11 @@ export function PlatformSection({ platform }: Props) {
             <View style={styles.separator} />
           ) : null}
           {comingSoon ? (
-            <SettingsRow label="Coming soon" accessory="none" disabled />
+            <SettingsRow
+              label={Strings.platformSection.comingSoon}
+              accessory="none"
+              disabled
+            />
           ) : (
             features
               .filter((f) => !f.parent)
@@ -121,7 +127,7 @@ export function PlatformSection({ platform }: Props) {
             <>
               <View style={styles.separator} />
               <SettingsRow
-                label="Reset to Defaults"
+                label={Strings.platformSection.reset}
                 accessory="none"
                 onPress={() => resetPlatform(platform.id)}
               />
@@ -136,38 +142,36 @@ export function PlatformSection({ platform }: Props) {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.surface,
-    borderRadius: 16,
+    borderRadius: Radii.lg,
     borderWidth: 1,
     borderColor: Colors.border,
     overflow: 'hidden',
-    marginBottom: 12,
+    marginBottom: Spacing.md,
   },
   header: {
     minHeight: 60,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingLeft: 16,
-    paddingRight: 16,
-    paddingVertical: 12,
-    gap: 12,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    gap: Spacing.md,
   },
   name: {
     flex: 1,
   },
   masterSwitch: {
-    marginRight: 4,
+    marginRight: Spacing.xs,
   },
   body: {
-    paddingBottom: 4,
+    paddingBottom: Spacing.xs,
   },
   separator: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: Colors.separator,
-    marginLeft: 16,
+    marginLeft: Spacing.lg,
   },
   childRow: {
-    paddingLeft: 16,
+    paddingLeft: Spacing.lg,
     backgroundColor: Colors.groupedBackground,
   },
 });

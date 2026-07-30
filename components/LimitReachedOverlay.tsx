@@ -3,6 +3,8 @@ import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Hourglass } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
+import { Radii, Size, Spacing } from '@/constants/spacing';
+import { Strings } from '@/constants/strings';
 
 type Props = {
   platformName: string;
@@ -14,9 +16,11 @@ type Props = {
 };
 
 function formatTime(seconds: number): string {
-  if (seconds < 60) return 'less than a minute';
+  if (seconds < 60) return Strings.limitReached.durationUnderAMinute;
   const m = Math.floor(seconds / 60);
-  return m === 1 ? '1 minute' : `${m} minutes`;
+  return m === 1
+    ? Strings.limitReached.durationOneMinute
+    : Strings.limitReached.durationMinutes(m);
 }
 
 export function LimitReachedOverlay({
@@ -62,20 +66,19 @@ export function LimitReachedOverlay({
           <Hourglass size={30} color={Colors.primary} />
         </View>
 
-        <Text style={[Typography.title, styles.title]}>You&apos;re all caught up</Text>
+        <Text style={[Typography.title, styles.title]}>{Strings.limitReached.title}</Text>
         <Text style={[Typography.body, styles.subtitle]}>
-          You set a limit of {limit} posts on {platformName}. Anything past this is the
-          algorithm&apos;s idea, not yours.
+          {Strings.limitReached.body(limit, platformName)}
         </Text>
 
         {sessionSeconds >= 30 && (
           <Text style={styles.timeSpent}>
-            You&apos;ve spent {formatTime(sessionSeconds)} here
+            {Strings.limitReached.timeSpent(formatTime(sessionSeconds))}
           </Text>
         )}
 
         <Pressable style={styles.primaryBtn} onPress={onDone}>
-          <Text style={styles.primaryText}>I&apos;m done</Text>
+          <Text style={styles.primaryText}>{Strings.limitReached.done}</Text>
         </Pressable>
 
         <Pressable
@@ -84,7 +87,9 @@ export function LimitReachedOverlay({
           disabled={locked}
         >
           <Text style={[styles.secondaryText, locked && styles.secondaryTextLocked]}>
-            {locked ? `Wait ${secondsLeft}s...` : 'Keep scrolling'}
+            {locked
+              ? Strings.limitReached.waitCooldown(secondsLeft)
+              : Strings.limitReached.keepScrolling}
           </Text>
         </Pressable>
       </Animated.View>
@@ -101,18 +106,18 @@ const styles = StyleSheet.create({
   },
   content: {
     alignItems: 'center',
-    paddingHorizontal: 32,
+    paddingHorizontal: Spacing.xxxl,
     width: '100%',
     maxWidth: 420,
   },
   iconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: Size.iconCircleLg,
+    height: Size.iconCircleLg,
+    borderRadius: Radii.circleLg,
     backgroundColor: Colors.primarySubtle,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: Spacing.xxl,
   },
   title: {
     textAlign: 'center',
@@ -122,21 +127,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: Colors.textSecondary,
     lineHeight: 22,
-    marginBottom: 32,
+    marginBottom: Spacing.xxxl,
   },
   timeSpent: {
     ...Typography.callout,
     textAlign: 'center',
     color: Colors.textSecondary,
-    marginBottom: 24,
+    marginBottom: Spacing.xxl,
   },
   primaryBtn: {
     alignSelf: 'stretch',
     backgroundColor: Colors.primary,
-    borderRadius: 12,
+    borderRadius: Radii.md,
     paddingVertical: 15,
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: Spacing.md,
   },
   primaryText: {
     ...Typography.headline,
@@ -147,7 +152,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: Colors.surface,
-    borderRadius: 12,
+    borderRadius: Radii.md,
     paddingVertical: 15,
     alignItems: 'center',
   },

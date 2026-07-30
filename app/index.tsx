@@ -194,10 +194,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.separator,
   },
   statusValue: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 22,
+    ...Typography.title,
     color: Colors.textPrimary,
-    letterSpacing: -0.2,
   },
   statusValueRow: {
     flexDirection: 'row',

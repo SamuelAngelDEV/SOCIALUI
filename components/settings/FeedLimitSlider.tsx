@@ -2,6 +2,8 @@ import Slider from '@react-native-community/slider';
 import { StyleSheet, Text, View } from 'react-native';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
+import { Spacing } from '@/constants/spacing';
+import { Strings } from '@/constants/strings';
 import { PlatformId } from '@/constants/platforms';
 import { FEED_LIMIT_MIN, FEED_LIMIT_MAX, FEED_LIMIT_STEP } from '@/constants/features';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -16,7 +18,7 @@ export function FeedLimitSlider({ platform }: Props) {
   return (
     <View style={styles.row}>
       <View style={styles.labelRow}>
-        <Text style={Typography.body}>Posts before it stops</Text>
+        <Text style={Typography.body}>{Strings.feedLimitSlider.label}</Text>
         <Text style={styles.count}>{value}</Text>
       </View>
       <Slider
@@ -40,9 +42,9 @@ export function FeedLimitSlider({ platform }: Props) {
 
 const styles = StyleSheet.create({
   row: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
     backgroundColor: Colors.surface,
   },
   labelRow: {

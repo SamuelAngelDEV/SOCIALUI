@@ -6,8 +6,12 @@ import { WebView } from 'react-native-webview';
 import { ChevronLeft } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
+import { Radii, Spacing } from '@/constants/spacing';
+import { Strings } from '@/constants/strings';
 import { PLATFORM_LIST, PLATFORMS, PlatformId } from '@/constants/platforms';
 import { buildDiagnosticScript, DiagnosticResult } from '@/injection/diagnostics';
+
+const COPY = Strings.doctor;
 
 /**
  * Selector Health: loads a platform (logged-in session, cookies shared with the
@@ -46,16 +50,14 @@ export default function Doctor() {
   const misses = results?.filter((r) => r.count <= 0).length ?? 0;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
+    <View style={[styles.container, { paddingTop: insets.top + Spacing.sm }]}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={12} style={styles.back}>
           <ChevronLeft size={26} color={Colors.textPrimary} />
         </Pressable>
         <View>
-          <Text style={Typography.title}>Selector Health</Text>
-          <Text style={[Typography.callout, styles.subtitle]}>
-            Tests the blockers against the live site. Screenshot results.
-          </Text>
+          <Text style={Typography.title}>{COPY.title}</Text>
+          <Text style={[Typography.callout, styles.subtitle]}>{COPY.subtitle}</Text>
         </View>
       </View>
 
@@ -90,20 +92,18 @@ export default function Doctor() {
 
       {platform && !results && (
         <Text style={[Typography.callout, styles.waiting]}>
-          Loading {PLATFORMS[platform].name} and counting… first report in ~5s.
+          {COPY.waiting(PLATFORMS[platform].name)}
         </Text>
       )}
 
       {results && (
         <>
           <Text style={[Typography.callout, styles.summaryLine]}>
-            {path ? `Measured on ${path} — ` : ''}
-            {misses === 0
-              ? 'every selector found its target.'
-              : `${misses} selector${misses === 1 ? '' : 's'} found nothing (red).`}
+            {path ? COPY.measuredOn(path) : ''}
+            {misses === 0 ? COPY.allFound : COPY.misses(misses)}
           </Text>
           <ScrollView
-            contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+            contentContainerStyle={{ paddingBottom: insets.bottom + Spacing.xxl }}
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.card}>
@@ -112,11 +112,15 @@ export default function Doctor() {
                   <View style={styles.rowText}>
                     <Text style={Typography.body}>{r.key}</Text>
                     <Text style={styles.selector} numberOfLines={1}>
-                      {r.kind === 'text' ? 'text: ' : ''}{r.selector}
+                      {r.kind === 'text' ? COPY.textKindPrefix : ''}{r.selector}
                     </Text>
                   </View>
                   <Text style={[styles.count, r.count > 0 ? styles.hit : styles.miss]}>
-                    {r.count < 0 ? 'invalid' : r.count === 0 ? 'none' : `${r.count}`}
+                    {r.count < 0
+                      ? COPY.invalidCount
+                      : r.count === 0
+                        ? COPY.zeroCount
+                        : `${r.count}`}
                   </Text>
                 </View>
               ))}
@@ -132,15 +136,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    paddingHorizontal: 16,
+    paddingHorizontal: Spacing.lg,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: Spacing.lg,
   },
   back: {
-    marginRight: 8,
+    marginRight: Spacing.sm,
+    // Optical: pulls the chevron's glyph bearing back into the gutter.
     marginLeft: -6,
   },
   subtitle: {
@@ -149,13 +154,13 @@ const styles = StyleSheet.create({
   pills: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
   },
   pill: {
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
+    paddingVertical: Spacing.sm,
+    borderRadius: Radii.pill,
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -180,19 +185,19 @@ const styles = StyleSheet.create({
   waiting: {
     color: Colors.textTertiary,
     textAlign: 'center',
-    marginTop: 24,
+    marginTop: Spacing.xxl,
   },
   summaryLine: {
     color: Colors.textSecondary,
     marginBottom: 10,
-    marginLeft: 4,
+    marginLeft: Spacing.xs,
   },
   card: {
     backgroundColor: Colors.surface,
-    borderRadius: 16,
+    borderRadius: Radii.lg,
     borderWidth: 1,
     borderColor: Colors.border,
-    paddingHorizontal: 16,
+    paddingHorizontal: Spacing.lg,
   },
   row: {
     flexDirection: 'row',
@@ -205,7 +210,7 @@ const styles = StyleSheet.create({
   },
   rowText: {
     flex: 1,
-    paddingRight: 12,
+    paddingRight: Spacing.md,
   },
   selector: {
     ...Typography.caption,

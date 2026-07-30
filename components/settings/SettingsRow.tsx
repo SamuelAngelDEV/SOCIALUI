@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { ChevronRight } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
+import { Radii, Spacing } from '@/constants/spacing';
+import { Strings } from '@/constants/strings';
 import type { MetricVisibility } from '@/constants/features';
 
 type Props = {
@@ -68,7 +70,7 @@ export function SettingsRow({
         )}
         {accessory === 'alwaysOn' && (
           <View style={styles.alwaysOnPill}>
-            <Text style={styles.alwaysOnText}>Always On</Text>
+            <Text style={Typography.pill}>{Strings.settingsRow.alwaysOn}</Text>
           </View>
         )}
         {accessory === 'chevron' && <ChevronRight size={18} color={Colors.textTertiary} />}
@@ -79,11 +81,9 @@ export function SettingsRow({
           <View style={styles.row}>
             <View style={styles.textCol}>
               <Text style={[Typography.body, disabled && styles.disabledText]}>
-                Hide Button Too
+                {Strings.settingsRow.hideButtonToo}
               </Text>
-              <Text style={styles.note}>
-                Also removes the tap target, not just the number.
-              </Text>
+              <Text style={styles.note}>{Strings.settingsRow.hideButtonTooNote}</Text>
             </View>
             <Switch
               value={metricIsHideBoth}
@@ -115,16 +115,16 @@ const styles = StyleSheet.create({
     minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: Spacing.lg,
     paddingVertical: 10,
     backgroundColor: Colors.surface,
   },
   leading: {
-    marginRight: 12,
+    marginRight: Spacing.md,
   },
   textCol: {
     flex: 1,
-    paddingRight: 12,
+    paddingRight: Spacing.md,
   },
   note: {
     ...Typography.callout,
@@ -142,16 +142,11 @@ const styles = StyleSheet.create({
   alwaysOnPill: {
     backgroundColor: 'rgba(52,199,89,0.12)',
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  alwaysOnText: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 12,
-    color: Colors.switchOn,
+    paddingVertical: Spacing.xs,
+    borderRadius: Radii.pill,
   },
   childRow: {
-    paddingLeft: 16,
+    paddingLeft: Spacing.lg,
     backgroundColor: Colors.groupedBackground,
   },
 });

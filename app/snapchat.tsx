@@ -3,7 +3,11 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
+import { Radii, Spacing } from '@/constants/spacing';
+import { Strings } from '@/constants/strings';
 import { PlatformLogo } from '@/components/PlatformLogo';
+
+const COPY = Strings.snapchat;
 
 /**
  * Presented as a modal (see app/_layout.tsx). Snapchat can't be surgically
@@ -14,30 +18,24 @@ export default function SnapchatSheet() {
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom + 24 }]}>
+    <View style={[styles.container, { paddingBottom: insets.bottom + Spacing.xxl }]}>
       <View style={styles.grabber} />
 
       <View style={styles.logo}>
         <PlatformLogo platform="snapchat" size={64} />
       </View>
 
-      <Text style={[Typography.title, styles.title]}>Snapchat works differently</Text>
+      <Text style={[Typography.title, styles.title]}>{COPY.title}</Text>
 
-      <Text style={[Typography.body, styles.body]}>
-        iOS won&apos;t let us change Snapchat&apos;s screen the way we change Instagram or
-        YouTube, so we can&apos;t hide just Spotlight, Snap Score, or Quick Add.
-      </Text>
-      <Text style={[Typography.body, styles.body]}>
-        What we can do — once app blocking is ready — is help you step away from Snapchat
-        entirely on a schedule you set. The surgical version is coming to Android first.
-      </Text>
+      <Text style={[Typography.body, styles.body]}>{COPY.whyNot}</Text>
+      <Text style={[Typography.body, styles.body]}>{COPY.whatsNext}</Text>
 
       <View style={styles.comingSoon}>
-        <Text style={styles.comingSoonText}>Block Snapchat — coming soon</Text>
+        <Text style={styles.comingSoonText}>{COPY.comingSoon}</Text>
       </View>
 
       <Pressable style={styles.close} onPress={() => router.back()}>
-        <Text style={styles.closeText}>Close</Text>
+        <Text style={styles.closeText}>{COPY.close}</Text>
       </Pressable>
     </View>
   );
@@ -47,7 +45,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    paddingHorizontal: 24,
+    paddingHorizontal: Spacing.xxl,
     alignItems: 'center',
   },
   grabber: {
@@ -55,29 +53,29 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 3,
     backgroundColor: Colors.separator,
-    marginTop: 8,
-    marginBottom: 24,
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xxl,
   },
   logo: {
-    marginTop: 12,
-    marginBottom: 20,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xl,
   },
   title: {
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: Spacing.lg,
   },
   body: {
     textAlign: 'center',
     color: Colors.textSecondary,
-    marginBottom: 12,
+    marginBottom: Spacing.md,
     lineHeight: 22,
   },
   comingSoon: {
-    marginTop: 12,
+    marginTop: Spacing.md,
     backgroundColor: Colors.primarySubtle,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderRadius: Radii.md,
   },
   comingSoonText: {
     ...Typography.headline,

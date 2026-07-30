@@ -1,6 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
+import { Radii, Shadow, Spacing } from '@/constants/spacing';
+import { Strings } from '@/constants/strings';
 import { PlatformConfig } from '@/constants/platforms';
 import { PlatformLogo } from './PlatformLogo';
 
@@ -44,17 +46,17 @@ export function PlatformTile({
         <PlatformLogo platform={platform.id} size={LOGO_SIZE} />
         {!comingSoon && platform.beta && (
           <View style={styles.betaBadge}>
-            <Text style={styles.badgeText}>BETA</Text>
+            <Text style={Typography.badge}>{Strings.platformTile.beta}</Text>
           </View>
         )}
         {!comingSoon && blockOnly && (
           <View style={styles.blockBadge}>
-            <Text style={styles.badgeText}>BLOCK ONLY</Text>
+            <Text style={Typography.badge}>{Strings.platformTile.blockOnly}</Text>
           </View>
         )}
         {comingSoon && (
           <View style={styles.comingSoonBadge}>
-            <Text style={styles.badgeText}>SOON</Text>
+            <Text style={Typography.badge}>{Strings.platformTile.soon}</Text>
           </View>
         )}
       </View>
@@ -64,15 +66,17 @@ export function PlatformTile({
           {platform.name}
         </Text>
         {!comingSoon && hasTime && (
-          <Text style={styles.statText}>{formatMs(todayMs)} today</Text>
+          <Text style={styles.statText}>
+            {Strings.platformTile.timeToday(formatMs(todayMs))}
+          </Text>
         )}
         {!comingSoon && !hasTime && activeCount !== undefined && activeCount > 0 && (
           <Text style={styles.statText}>
-            {activeCount} filter{activeCount !== 1 ? 's' : ''} active
+            {Strings.platformTile.filtersActive(activeCount)}
           </Text>
         )}
         {comingSoon && (
-          <Text style={styles.statText}>Coming soon</Text>
+          <Text style={styles.statText}>{Strings.platformTile.comingSoon}</Text>
         )}
       </View>
     </Pressable>
@@ -82,14 +86,11 @@ export function PlatformTile({
 const styles = StyleSheet.create({
   tile: {
     backgroundColor: Colors.surface,
-    borderRadius: 16,
+    borderRadius: Radii.lg,
     borderWidth: 1,
     borderColor: Colors.border,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
+    padding: Spacing.lg,
+    ...Shadow.card,
   },
   topRow: {
     marginBottom: 14,
@@ -101,6 +102,8 @@ const styles = StyleSheet.create({
     ...Typography.callout,
     color: Colors.textTertiary,
   },
+  // Badge offsets are optical: the sticker hangs off the logo's bottom-left corner,
+  // so these stay off-grid literals rather than becoming spacing tokens.
   betaBadge: {
     position: 'absolute',
     bottom: -6,
@@ -108,7 +111,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.badgeRed,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 5,
+    borderRadius: Radii.badge,
   },
   blockBadge: {
     position: 'absolute',
@@ -117,7 +120,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accentGold,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 5,
+    borderRadius: Radii.badge,
   },
   comingSoonBadge: {
     position: 'absolute',
@@ -126,13 +129,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.textTertiary,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 5,
-  },
-  badgeText: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 9,
-    letterSpacing: 0.4,
-    color: '#FFFFFF',
+    borderRadius: Radii.badge,
   },
   tileDimmed: {
     opacity: 0.85,

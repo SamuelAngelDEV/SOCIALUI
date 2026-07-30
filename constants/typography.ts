@@ -43,4 +43,26 @@ export const Typography = {
     textTransform: 'uppercase',
     color: Colors.textTertiary,
   },
+  // Sentence-case label inside a filled pill, e.g. "Recommended" on an onboarding
+  // preset card. Shares `caption`'s metrics (11/500) but deliberately stays a
+  // separate token: `caption` is an uppercase eyebrow (letterSpacing + textTransform)
+  // and applying it here would rewrite the copy as "RECOMMENDED".
+  tag: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+    color: Colors.surface,
+  },
+  // Status pill in Settings, e.g. the locked "Always On" marker.
+  pill: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    color: Colors.switchOn,
+  },
+  // Smallest type in the app: the stickers on a home tile (BETA / BLOCK ONLY / SOON).
+  badge: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 9,
+    letterSpacing: 0.4,
+    color: Colors.surface,
+  },
 } satisfies Record<string, TextStyle>;
