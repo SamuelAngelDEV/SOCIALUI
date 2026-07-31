@@ -31,6 +31,16 @@ There is no test runner configured in the repo. Test suites (jsdom-based, 176 as
 
 ## Architecture
 
+### Repository layout
+
+- `app/` — expo-router screens (file-based routing). `_layout.tsx` defines the root `Stack`: `index` (home tile grid), `onboarding`, `settings`, `insights` (weekly report), `platform/[id]` (the WebView screen, one per platform), `snapchat` (modal, block-only platform), `doctor` (selector health dashboard).
+- `components/` — shared UI (`PlatformTile`, `PlatformLogo`, overlays, `charts/`, `settings/`).
+- `constants/` — `platforms.ts` (platform registry), `features.ts` (per-platform feature list driving both Settings UI and injection), `colors.ts`/`typography.ts`/`spacing.ts` (design tokens), `strings.ts`, `presets.ts`, `survey.ts`.
+- `injection/` — one file per platform (`instagram.ts`, `tiktok.ts`, etc.) plus `engine.ts` (rule → IIFE compiler), `adapter.ts` (`PlatformAdapter` shape + `buildFromAdapter()`), `index.ts` (entry point `buildInjection()`), `diagnostics.ts` (selector health script).
+- `store/` — Zustand + AsyncStorage state (`settingsStore.ts`, `statsStore.ts`).
+- `utils/` — `stats.ts` (category mapping, day/week keys), `savings.ts` (time-saved estimates), `reclaimed.ts`.
+- `research/` — design/product docs (competitor UI analysis, visual direction, tracking-accuracy notes). Read before UI or feature-scope changes.
+
 ### How injection works
 
 Every platform is a `react-native-webview` that loads the real site. On load, `buildInjection(platform, settings, feedLimit, masterSettings)` in `injection/index.ts` calls the platform's `build*Script()` function, which calls `buildScript()` in `injection/engine.ts` with a list of rules and a config object.
