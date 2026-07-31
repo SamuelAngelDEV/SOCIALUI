@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - No analytics, telemetry, or any network calls that send user data anywhere. Everything stays on-device (AsyncStorage only).
 - Do not scrape, cache, or store any platform data. CSS/JS injection only — we never touch platform content, only hide elements.
 - No ads. No data collection. No engagement optimization.
+- Never claim credit for a behaviour change. Copy says "a comparable intervention achieved this", never "Quiet saved you this" — the first is arithmetic on measured data, the second is an unknowable counterfactual. `utils/reclaimed.ts` exists to enforce this; read its header before writing any outcome copy.
 
 ## Commands
 
@@ -25,7 +26,27 @@ npx expo lint
 npx tsc --noEmit
 ```
 
-There is no test runner configured in the repo. Test suites (jsdom-based, 176 assertions across 8 files) live in the session scratchpad and must be run manually with `node <file>` after building the injection modules.
+**Node 24 gotcha:** `expo start` crashes in its dependency validator with `TypeError: Body is unusable`. Use Node 22 LTS, or skip the check with `EXPO_OFFLINE=1 npx expo start`. (The machine's default `node` is currently v24.)
+
+### Verification scripts
+
+There is no test runner. `scripts/` holds standalone zero-dependency `node` scripts instead; each exits non-zero on failure.
+
+```bash
+node scripts/verify-tracking.js    # 66 checks — mapPathToCategory, idle clamp, commit loop
+```
+
+`verify-tracking.js` does not re-implement what it tests: it reads `utils/stats.ts`, lifts the real function bodies out, strips type annotations and evals them. Keep that property — a copied-out implementation drifts and silently stops testing anything.
+
+`scripts/verify-reclaimed.js` (28 checks) requires a compiled build first, and its `require` path is absolute:
+
+```bash
+npx tsc utils/reclaimed.ts --outDir .tmp-reclaimed --rootDir . \
+  --module commonjs --target es2020 --moduleResolution node --skipLibCheck
+node scripts/verify-reclaimed.js
+```
+
+The `tsc` step reports `TS2307: Cannot find module '@/constants/platforms'` — that is a type-only import, tsc emits anyway, and the checks pass. `.tmp-reclaimed/` is a throwaway; delete it after.
 
 **Important:** Read `AGENTS.md` before writing any Expo API code — it points to the exact versioned docs (`https://docs.expo.dev/versions/v54.0.0/`). Expo SDK 54 APIs differ from what the model's training data contains.
 
@@ -33,19 +54,36 @@ There is no test runner configured in the repo. Test suites (jsdom-based, 176 as
 
 ### Repository layout
 
-- `app/` — expo-router screens (file-based routing). `_layout.tsx` defines the root `Stack`: `index` (home tile grid), `onboarding`, `settings`, `insights` (weekly report), `platform/[id]` (the WebView screen, one per platform), `snapchat` (modal, block-only platform), `doctor` (selector health dashboard).
+- `app/` — expo-router screens (file-based routing). `_layout.tsx` defines the root `Stack`: `index` (home tile grid), `onboarding` (5-question survey), `settings`, `insights` (weekly report), `platform/[id]` (the WebView screen, one per platform), `snapchat` (modal, block-only platform), `doctor` (selector health dashboard).
 - `components/` — shared UI (`PlatformTile`, `PlatformLogo`, overlays, `charts/`, `settings/`).
-- `constants/` — `platforms.ts` (platform registry), `features.ts` (per-platform feature list driving both Settings UI and injection), `colors.ts`/`typography.ts`/`spacing.ts` (design tokens), `strings.ts`, `presets.ts`, `survey.ts`.
+- `constants/` — `platforms.ts` (platform registry), `features.ts` (per-platform feature list driving both Settings UI and injection), `presets.ts` (modes), `survey.ts` (onboarding questions as data), `colors.ts`/`typography.ts`/`spacing.ts` (design tokens), `strings.ts` (all user-facing copy).
 - `injection/` — one file per platform (`instagram.ts`, `tiktok.ts`, etc.) plus `engine.ts` (rule → IIFE compiler), `adapter.ts` (`PlatformAdapter` shape + `buildFromAdapter()`), `index.ts` (entry point `buildInjection()`), `diagnostics.ts` (selector health script).
 - `store/` — Zustand + AsyncStorage state (`settingsStore.ts`, `statsStore.ts`).
-- `utils/` — `stats.ts` (category mapping, day/week keys), `savings.ts` (time-saved estimates), `reclaimed.ts`.
+- `utils/` — `stats.ts` (category mapping, idle clamp, day/week keys, intentional-vs-algorithmic split, Rhythm), `savings.ts` (per-feature time-saved estimates), `reclaimed.ts` (week-over-week trend, extrapolation).
+- `scripts/` — verification scripts (above) plus `reset-project.js` (the create-expo-app scaffold remover — do not run).
 - `research/` — design/product docs (competitor UI analysis, visual direction, tracking-accuracy notes). Read before UI or feature-scope changes.
+
+Copy belongs in `constants/strings.ts`, not inline in components — except copy that already lives in a structured table (`features.ts` `label`/`note`, `presets.ts` `name`/`description`), which stays there.
 
 ### How injection works
 
 Every platform is a `react-native-webview` that loads the real site. On load, `buildInjection(platform, settings, feedLimit, masterSettings)` in `injection/index.ts` calls the platform's `build*Script()` function, which calls `buildScript()` in `injection/engine.ts` with a list of rules and a config object.
 
-`buildScript()` produces a self-contained IIFE string that is injected into the WebView. It runs entirely in the WebView's JS context — no bridge calls needed for hiding elements. The config object is `Record<string, boolean | MetricVisibility>` — metric features store a 3-state string, everything else is boolean. The only bridge calls go the other direction: the injected script calls `window.ReactNativeWebView.postMessage()` to report SPA navigation (`quiet-nav`), feed cap hits (`quiet-limit-reached`), and selector health (`quiet-health`).
+`buildScript()` produces a self-contained IIFE string that is injected into the WebView. It runs entirely in the WebView's JS context — no bridge calls needed for hiding elements. The config object is `Record<string, boolean | MetricVisibility>` — metric features store a 3-state string, everything else is boolean.
+
+The only bridge calls go the other direction, via `window.ReactNativeWebView.postMessage()`:
+
+| Message | Meaning |
+| --- | --- |
+| `quiet-nav` | SPA navigation — carries `path`; drives category commits |
+| `quiet-activity` | A real user interaction happened; resets the idle clamp |
+| `quiet-hidden` / `quiet-visible` | `document.hidden` flipped; pauses/resumes the timer |
+| `quiet-limit-reached` | Feed cap wall hit |
+| `quiet-health` | One-time selector health report |
+
+`app/platform/[id].tsx` ignores any payload that isn't one of these — the page itself can call `postMessage` too.
+
+Snapchat has no builder in `BUILDERS`; it is block-only and renders as a modal. `buildInjection` returns `'true;'` for any unregistered platform.
 
 ### Platform adapters
 
@@ -73,9 +111,13 @@ Metric-hiding features (like counts, follower counts, view counts, engagement co
 - `'hidden-number'` — hide the count text, keep buttons/controls clickable
 - `'hidden-both'` — hide both the count and the control (e.g. hide the like button entirely)
 
-Features with `metric: true` in `constants/features.ts` use this model. The settings UI renders a 3-segment control ("Show / Count / All") instead of a switch. The store's `merge()` function auto-migrates old boolean values on hydration (`true` → `'hidden-both'`, `false` → `'visible'`).
+Features with `metric: true` in `constants/features.ts` use this model. The settings UI renders a 3-segment control ("Show / Count / All") instead of a switch.
 
-`killAllMetrics` master toggle forces all metric keys to `'hidden-both'`.
+### Master toggles and presets
+
+`applyMasterOverrides()` in `injection/index.ts` lays the cross-platform master toggles over per-platform config just before building: `killAllMetrics` forces every key in `METRIC_KEYS` to `'hidden-both'`, `killAllBadges` forces `BADGE_KEYS` on, `messagesOnly` → `dmsOnly`, `grayscaleEverything` → `grayscale`. Keys a platform doesn't implement are harmless no-ops. **When you add a new metric or badge feature key, add it to those arrays** or the master toggle will silently skip it.
+
+`constants/presets.ts` defines modes — named bundles of settings applied to every enabled platform by `applyPreset()`. Modes are named for the **job** ("Look it up"), not the intensity ("Strict"), because an intensity name doesn't tell the user which to pick. A preset only writes keys that already exist in a platform's settings.
 
 ### Health beacon
 
@@ -87,23 +129,60 @@ The cap marks kept posts with `data-quiet-keep` (persistent — never removed ev
 
 ### State
 
-- `store/settingsStore.ts` — per-platform feature toggles, master toggles (`killAllMetrics`, `killAllBadges`, `messagesOnly`, `grayscaleEverything`), `toggleEnabledAt` timestamps. Persisted via Zustand + AsyncStorage.
-- `store/statsStore.ts` — time tracking: `DayStats` keyed by `'YYYY-MM-DD'`. Each day has `total`, `platforms` (ms per platform), `categories` (global rollup), and `byPlatform` (per-platform category split — required to avoid cross-contamination in savings estimates). Pruned to 60 days. Storage key: `'quiet-stats-v1'`.
+- `store/settingsStore.ts` — per-platform feature toggles, feed limits, master toggles (`killAllMetrics`, `killAllBadges`, `messagesOnly`, `grayscaleEverything`), `toggleEnabledAt` timestamps, `onboarded` + the five survey answers. Persisted via Zustand + AsyncStorage.
+- `store/statsStore.ts` — time tracking, storage key `'quiet-stats-v1'`. `DayStats` keyed `'YYYY-MM-DD'`, pruned to 60 days.
+
+`DayStats` fields, all in milliseconds:
+
+- `total`, `platforms` — headline numbers.
+- `categories` — global activity rollup (kept for totals and pre-upgrade data).
+- `byPlatform?` — per-platform category split. **Required to avoid cross-contamination** in savings estimates; days predating it fall back to `categories`.
+- `hours?` — per category, 24 local-hour buckets. Powers Rhythm. Stored per category rather than flattened so the intentional/algorithmic classification stays a read-time function (`CATEGORY_KIND`) — reclassifying a category later must not invalidate history.
+
+Both optional fields are additive: no store version bump was needed, and every read path treats missing/short data as zero. Follow that pattern for new fields.
+
+`settingsStore`'s custom `merge()` runs on hydration and does more than shape-filling: it migrates old boolean metric values (`true` → `'hidden-both'`, `false` → `'visible'`), folds the retired `hideLikeButton` key into `hideLikeCounts`, and re-validates stored survey answers through the type guards in `constants/survey.ts` rather than trusting whatever an older build wrote.
 
 ### Time tracking flow
 
-`app/platform/[id].tsx` owns the timer. It tracks `catRef` (current category), `catStartRef` (segment start), and `pausedRef` (backgrounded). On WebView `onMessage`, a `quiet-nav` message commits the elapsed segment via `addTime(platform, category, ms)` and starts a new one. `AppState` pauses/resumes. On close, the final segment is committed and `SessionSummaryOverlay` is shown if the session was >5s.
+`app/platform/[id].tsx` owns the timer. It tracks `catRef` (current category), `catStartRef` (segment start), `pausedRef` (backgrounded), and last-activity time. On `quiet-nav`, the elapsed segment is committed via `addTime(platform, category, ms, endedAt?)` and a new one starts. `AppState` and `quiet-hidden`/`quiet-visible` pause and resume. On close, the final segment is committed and `SessionSummaryOverlay` is shown if the session was >5s.
 
-`mapPathToCategory(platform, path)` in `utils/stats.ts` converts a URL pathname to a `Category` ('feed' | 'reels' | 'messages' | 'video' | 'other').
+`addTime` slices the segment `[endedAt - ms, endedAt)` across local hour boundaries into `hours`.
 
-### Instagram DM reel guard
+**Idle clamp.** A WebView left open on a feed would otherwise accrue time forever — a phone put down mid-scroll is the largest single source of over-counting, and it inflates exactly the algorithmic categories the headline claim is about. `effectiveSegmentEnd(start, now, lastActivityAt, graceMs)` cuts a segment off at `lastActivityAt + IDLE_GRACE_MS` (60s) and discards the dead span. It never returns a value before `start` — a segment can shrink to zero but a clamp must not be able to invent time.
 
-`dmReelGuard(config)` in `injection/instagram.ts` is a separate IIFE (not part of `buildScript`) appended when `blockReels` is on. It uses `sessionStorage('quiet-dm-reel-origin')` to remember which chat thread opened a reel, locks scroll on the reel page (so swiping to the next reel is blocked), and redirects back to the originating chat when the reel ends. Reels not reached from a chat are redirected to `/`.
+`mapPathToCategory(platform, path)` in `utils/stats.ts` converts a URL pathname to a `Category` (`'feed' | 'reels' | 'messages' | 'video' | 'other'`). It normalizes first (full hrefs, query strings, fragments, trailing slashes all tolerated) because it is the only thing standing between a URL and a permanently-recorded category. Any change here needs a matching case in `scripts/verify-tracking.js`.
+
+### Intentional vs algorithmic split
+
+The product's headline measurement is not "which app" but who chose the content. `CATEGORY_KIND` in `utils/stats.ts`:
+
+- `messages`, `video` → `intentional` ("Chosen by you") — a specific person, a specific video.
+- `feed`, `reels` → `algorithmic` ("Chosen for you").
+- `other` → `unclassified`, deliberately its own kind. It's the fallback branch of `mapPathToCategory` (profiles, search, notifications, Explore) and mixes both. `splitByKind()` excludes it from the ratio and reports it on its own line; `classified = intentional + algorithmic` is the only honest denominator.
+
+Do not fold `other` into either side to make a number look better.
+
+### Rhythm
+
+`hourHistogram()` + `findRhythmWindow()` find the contiguous stretch of the day (wrapping past midnight) holding the most algorithmic time relative to its length, scored to reward concentration rather than raw size. Gated on four conditions (≥3 days with data, ≥30 min total, ≥30% share, ≥1.6× an even spread) and returns `null` when the data is too thin — **saying nothing is the correct output**. `describeRhythm()` is observational: it states the pattern and asks for nothing.
+
+### Refusing to claim
+
+Three modules share one discipline — refuse a claim the data doesn't support, rather than hedge it:
+
+- `utils/savings.ts` — `getSavingsLine(platform, featureKey, isOn, days, enabledAt?)` returns `'Learning your patterns…'` or `null` below `MIN_DAYS_OF_DATA` (3). Uses `byPlatform` to avoid cross-contamination.
+- `utils/reclaimed.ts` — needs `MIN_FULL_WEEKS` (2) and a delta above `MIN_DELTA_MS_PER_WEEK` (15 min) before naming a trend. Baseline is the user's own first full week, never a population average. A rise is reported as plainly as a fall. No streaks, no scores, no goal bars.
+- Rhythm, above.
 
 ### Selector Health (doctor.tsx)
 
 Loads each platform in a hidden 2×2 WebView, injects `buildDiagnosticScript(platform)` from `injection/diagnostics.ts`, and receives a `quiet-diagnostic` postMessage with live selector hit counts. Use this to confirm CSS selectors still work after platform UI updates.
 
-### Savings estimates
+### Instagram DM reel guard
 
-`utils/savings.ts` → `getSavingsLine(platform, featureKey, isOn, days, enabledAt?)`. Returns a human-readable estimate of time saved (or time at risk if the feature is off). Uses `byPlatform` from `DayStats` to avoid cross-contamination — days without `byPlatform` fall back to the global `categories` field.
+`dmReelGuard(config)` in `injection/instagram.ts` is a separate IIFE (not part of `buildScript`) appended when `blockReels` is on. It uses `sessionStorage('quiet-dm-reel-origin')` to remember which chat thread opened a reel, locks scroll on the reel page (so swiping to the next reel is blocked), and redirects back to the originating chat when the reel ends. Reels not reached from a chat are redirected to `/`.
+
+### Design tokens
+
+`constants/colors.ts` pairs were computed against WCAG 2.x relative luminance, not estimated, with the ratio recorded in a comment per entry (body text 4.5:1, large text and non-text UI 3:1). Two values were removed for failing; don't reintroduce colors without computing the ratio. The palette carries several hues at restrained chroma deliberately — saturation drives perceived arousal more than hue. The standing rule is to copy competitor *layout*, never their visual style. See `research/03-visual-direction.md`.
