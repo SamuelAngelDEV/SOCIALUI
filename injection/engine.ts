@@ -297,8 +297,54 @@ export function buildScript(args: BuildScriptArgs): string {
         } catch (e) {}
       }
 
+      // --- Activity signal ---
+      //
+      // Without this the app credits time for as long as the WebView is open,
+      // so a phone put down mid-feed keeps recording "use". These pings tell the
+      // app that a human is still here; it stops accruing once they dry up.
+      //
+      // Nothing about the interaction is captured — no coordinates, no target,
+      // no timestamps beyond "just now", and the message never leaves the device.
+      var lastPing = 0;
+      var PING_THROTTLE_MS = 5000;
+
+      function post(payload) {
+        try {
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+          }
+        } catch (e) {}
+      }
+
+      function ping() {
+        var now = Date.now();
+        if (now - lastPing < PING_THROTTLE_MS) return;
+        lastPing = now;
+        post({ type: 'quiet-activity' });
+      }
+
+      // A video the user is actually listening to is real use even with no
+      // touches for minutes at a time. Muted playback is deliberately NOT a
+      // heartbeat: feed autoplay previews are muted, and crediting those would
+      // reintroduce the passive accrual this whole mechanism exists to stop.
+      function mediaHeartbeat() {
+        try {
+          if (document.hidden) return;
+          var vids = document.getElementsByTagName('video');
+          for (var i = 0; i < vids.length; i++) {
+            var v = vids[i];
+            if (!v.paused && !v.ended && !v.muted && v.currentTime > 0) {
+              lastPing = 0;   // bypass the input throttle; this is a liveness beat
+              ping();
+              return;
+            }
+          }
+        } catch (e) {}
+      }
+
       function onScroll() {
         lastScroll = Date.now();
+        try { ping(); } catch (e) {}
         try { maybeSignalWall(); } catch (e) {}
         if (scrollTimer) return;
         scrollTimer = setTimeout(function() {
@@ -603,8 +649,26 @@ export function buildScript(args: BuildScriptArgs): string {
           });
         }).observe(document.documentElement, { childList: true, subtree: true });
 
-        // Capture-phase so inner scroll containers count too.
+        // Capture-phase so inner scroll containers count too. onScroll also pings.
         window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+
+        // Capture phase, passive, and never preventDefault — the activity signal
+        // must be invisible to the page it observes.
+        var actOpts = { capture: true, passive: true };
+        document.addEventListener('touchstart', ping, actOpts);
+        document.addEventListener('pointerdown', ping, actOpts);
+        document.addEventListener('keydown', ping, actOpts);
+        window.addEventListener('wheel', ping, actOpts);
+
+        // Second, independent pause signal. AppState is the primary one, but it
+        // is a native-side assumption we cannot verify on every OS version; the
+        // WebView going hidden (screen lock, app switcher, tab occluded) is
+        // observed directly here and costs nothing to report.
+        document.addEventListener('visibilitychange', function () {
+          post({ type: document.hidden ? 'quiet-hidden' : 'quiet-visible' });
+        });
+
+        setInterval(mediaHeartbeat, 15000);
 
         // Swallow taps on blocked targets. CSS only helps if our selector found
         // the element, and the route guard only fires after navigation has

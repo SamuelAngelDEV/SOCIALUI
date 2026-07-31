@@ -10,19 +10,47 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   other: 'Other',
 };
 
+/**
+ * Reduce whatever the WebView handed us to a bare, comparable pathname.
+ *
+ * The engine sends `location.pathname`, but this function is the only thing
+ * standing between a URL and a permanently-recorded category, so it does not
+ * assume that: a full href, a query string or a fragment are all tolerated.
+ * Trailing slashes are stripped (except on the root) because the exact-match
+ * branches below would otherwise miss — `/home/` and `/home` are the same page,
+ * and Instagram and LinkedIn both serve trailing-slash canonical URLs.
+ */
+function normalizePath(path: string): string {
+  let p = (path || '').trim();
+  if (!p) return '/';
+  if (p.includes('://')) {
+    // A full URL slipped through. Take the pathname without needing URL().
+    const afterScheme = p.slice(p.indexOf('://') + 3);
+    const slash = afterScheme.indexOf('/');
+    p = slash === -1 ? '/' : afterScheme.slice(slash);
+  }
+  p = p.split('?')[0].split('#')[0].toLowerCase();
+  if (!p.startsWith('/')) p = '/' + p;
+  // '/' must survive; '/r/foo/' becomes '/r/foo'.
+  while (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
+  return p;
+}
+
 /** Map a pathname inside a platform's WebView to a time category. */
 export function mapPathToCategory(platform: PlatformId, path: string): Category {
-  const p = path.toLowerCase();
+  const p = normalizePath(path);
   switch (platform) {
     case 'instagram':
       if (p.startsWith('/direct')) return 'messages';
+      // '/reels' is the Reels tab and '/reel/{id}' a single reel — the app's own
+      // route guards in injection/instagram.ts key on exactly these two shapes.
       if (p.startsWith('/reels') || p.startsWith('/reel/')) return 'reels';
       if (p === '/' || p.startsWith('/p/')) return 'feed';
       return 'other';
     case 'youtube':
       if (p.startsWith('/shorts')) return 'reels';
       if (p.startsWith('/watch')) return 'video';
-      if (p === '/' || p === '') return 'feed';
+      if (p === '/') return 'feed';
       return 'other';
     case 'twitter':
       if (p.startsWith('/messages')) return 'messages';
@@ -32,15 +60,25 @@ export function mapPathToCategory(platform: PlatformId, path: string): Category 
       if (p.startsWith('/messages')) return 'messages';
       if (p.startsWith('/reel')) return 'reels';
       if (p.startsWith('/watch')) return 'video';
+      // m.facebook.com still serves the old '/home.php' alongside '/'.
       if (p === '/' || p.startsWith('/home')) return 'feed';
       return 'other';
     case 'reddit':
       if (p.startsWith('/message') || p.startsWith('/chat')) return 'messages';
+      // A comment permalink ('/r/{sub}/comments/{id}/{slug}') is a specific
+      // thread the user opened, not the ranked subreddit listing. Both live
+      // under '/r/', so the listing test has to exclude it — otherwise every
+      // thread read is booked as algorithmic feed time and the headline
+      // useful-vs-algorithmic split is inflated on Reddit's heaviest surface.
+      if (p.includes('/comments/')) return 'other';
       if (p === '/' || p.startsWith('/r/')) return 'feed';
       return 'other';
     case 'tiktok':
       if (p.startsWith('/messages')) return 'messages';
-      return 'reels'; // TikTok is short video wall-to-wall
+      // Search is the one TikTok surface the user drives themselves; everything
+      // else really is the short-video wall.
+      if (p.startsWith('/search')) return 'other';
+      return 'reels';
     case 'linkedin':
       if (p.startsWith('/messaging')) return 'messages';
       if (p.startsWith('/feed') || p === '/') return 'feed';
@@ -48,6 +86,42 @@ export function mapPathToCategory(platform: PlatformId, path: string): Category 
     default:
       return 'other';
   }
+}
+
+// ---------------------------------------------------------------------------
+// Idle
+// ---------------------------------------------------------------------------
+
+/**
+ * How long after the last real interaction we keep crediting time.
+ *
+ * A WebView left open on a feed accrues time forever otherwise — the phone put
+ * down mid-scroll is the single largest source of over-counting, and it inflates
+ * exactly the algorithmic categories the product's headline claim is about.
+ * 60s is chosen to sit comfortably above the gap between two deliberate reads of
+ * a long post or comment thread (which produce no touch events at all) while
+ * still capping an abandoned session at one minute of phantom use.
+ */
+export const IDLE_GRACE_MS = 60_000;
+
+/**
+ * The instant a segment should be treated as having ended.
+ *
+ * Normally that is `now`. If the last interaction is further back than the grace
+ * window, the segment is cut off at `lastActivityAt + graceMs` and the dead span
+ * after it is discarded. Never returns a value before `start`, so a segment can
+ * shrink to zero but never go negative — a clamp must not be able to invent
+ * time, and the caller relies on `end - start >= 0`.
+ */
+export function effectiveSegmentEnd(
+  start: number,
+  now: number,
+  lastActivityAt: number,
+  graceMs: number
+): number {
+  const cutoff = lastActivityAt + graceMs;
+  if (cutoff >= now) return now;
+  return cutoff > start ? cutoff : start;
 }
 
 /** Local-time day key, e.g. '2026-07-23'. */

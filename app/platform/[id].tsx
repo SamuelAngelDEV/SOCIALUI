@@ -8,7 +8,13 @@ import { PLATFORMS, PlatformId } from '@/constants/platforms';
 import { buildInjection } from '@/injection';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useStatsStore } from '@/store/statsStore';
-import { Category, dayKey, mapPathToCategory } from '@/utils/stats';
+import {
+  Category,
+  dayKey,
+  effectiveSegmentEnd,
+  IDLE_GRACE_MS,
+  mapPathToCategory,
+} from '@/utils/stats';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
 import { LimitReachedOverlay } from '@/components/LimitReachedOverlay';
@@ -16,6 +22,9 @@ import { SessionSummaryOverlay } from '@/components/SessionSummaryOverlay';
 
 // Sessions shorter than this close without a summary — not worth interrupting for.
 const SUMMARY_MIN_MS = 5000;
+
+/** Segments below this are too short to record; the remainder is carried, not dropped. */
+const MIN_SEGMENT_MS = 500;
 
 const LOAD_TIMEOUT_MS = 10000;
 
@@ -51,34 +60,83 @@ export default function PlatformView() {
   const catStartRef = useRef<number>(Date.now());
   const sessionAggRef = useRef<Partial<Record<Category, number>>>({});
   const pausedRef = useRef(false);
+  // The clock does not start at mount. Page load is 1–5s of spinner that used to
+  // be booked as 'feed' — i.e. as algorithmic time — on every single visit.
+  const startedRef = useRef(false);
+  // Last interaction reported by the injected activity ping.
+  const lastActivityRef = useRef<number>(Date.now());
+  // Whether pings are arriving at all. A platform toggled off gets no injection
+  // and therefore no pings; clamping on that silence would record zero for it.
+  const activityCapableRef = useRef(false);
   const [summary, setSummary] = useState<{
     total: number;
     perCategory: Partial<Record<Category, number>>;
   } | null>(null);
 
   // Close out the running category segment into both the session aggregate and
-  // the persistent per-day stats. `now` is passed through so the store can split
-  // the segment across any local hour (or midnight) boundary it crossed.
+  // the persistent per-day stats. The clamped end is passed through so the store
+  // splits across the hour (or midnight) boundaries the segment really crossed —
+  // handing it `now` after an idle clamp would file the time in the wrong hour.
   const commitSegment = () => {
     const now = Date.now();
-    const ms = now - catStartRef.current;
+    if (pausedRef.current || !startedRef.current || !id) {
+      catStartRef.current = now;
+      return;
+    }
+    const start = catStartRef.current;
+    const end = activityCapableRef.current
+      ? effectiveSegmentEnd(start, now, lastActivityRef.current, IDLE_GRACE_MS)
+      : now;
+    const ms = end - start;
+
+    if (ms < MIN_SEGMENT_MS) {
+      // Too short to record. Leave catStart where it is so the remainder rolls
+      // into the next segment rather than being deleted — rapid navigation
+      // should shift time between categories, never destroy it. The exception is
+      // an idle clamp, where the span really is dead and must be stepped over.
+      if (end < now) catStartRef.current = now;
+      return;
+    }
+
     catStartRef.current = now;
-    if (pausedRef.current || ms < 500 || !id) return;
     const cat = catRef.current;
     sessionAggRef.current[cat] = (sessionAggRef.current[cat] ?? 0) + ms;
-    addTime(id, cat, ms, now);
+    addTime(id, cat, ms, end);
   };
 
-  // Don't count time while the app is backgrounded.
+  // Returning to the app is itself an interaction, so the grace window restarts.
+  const resumeTracking = () => {
+    const now = Date.now();
+    pausedRef.current = false;
+    lastActivityRef.current = now;
+    catStartRef.current = now;
+  };
+
+  const pauseTracking = () => {
+    commitSegment();
+    pausedRef.current = true;
+  };
+
+  // Begin accruing. Called from the first `quiet-nav` (the moment the page is
+  // real) or, for platforms running without injection, from onLoadEnd. Idempotent
+  // — later loads and SPA navigations must not restart the session clock.
+  const startTracking = () => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    const now = Date.now();
+    catStartRef.current = now;
+    lastActivityRef.current = now;
+  };
+
+  // Don't count time while the app is backgrounded. On iOS a screen lock reports
+  // 'inactive' before 'background' and on Android it reports 'background'; both
+  // are non-'active' and so both pause here. The WebView's own visibilitychange
+  // (handled in onWebMessage) is a second, independent signal for the same event,
+  // and the idle clamp caps the damage to one grace window if both were to miss.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        pausedRef.current = false;
-        catStartRef.current = Date.now();
-      } else {
-        commitSegment();
-        pausedRef.current = true;
-      }
+      if (state === 'active') resumeTracking();
+      else pauseTracking();
     });
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -86,7 +144,6 @@ export default function PlatformView() {
 
   // If the screen unmounts by any route other than the close button, still log.
   useEffect(() => {
-    catStartRef.current = Date.now();
     return () => commitSegment();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -136,8 +193,29 @@ export default function PlatformView() {
           if (msg.broken?.length) console.warn('[Quiet] broken selectors:', msg.broken);
           if (msg.zero?.length) console.log('[Quiet] zero-match selectors:', msg.zero);
         }
+      } else if (msg.type === 'quiet-activity') {
+        activityCapableRef.current = true;
+        const now = Date.now();
+        // Coming back after a silence means we were idle. Close the segment
+        // first — commitSegment still sees the OLD lastActivity, so it clamps
+        // the dead span off — and only then restart the clock.
+        if (now - lastActivityRef.current > IDLE_GRACE_MS) {
+          commitSegment();
+          catStartRef.current = now;
+        }
+        lastActivityRef.current = now;
+      } else if (msg.type === 'quiet-hidden') {
+        pauseTracking();
+      } else if (msg.type === 'quiet-visible') {
+        resumeTracking();
       } else if (msg.type === 'quiet-nav' && typeof msg.path === 'string' && id) {
         const nextCat = mapPathToCategory(id, msg.path);
+        if (!startedRef.current) {
+          // First real navigation: this is where the session actually begins.
+          catRef.current = nextCat;
+          startTracking();
+          return;
+        }
         if (nextCat !== catRef.current) {
           commitSegment();
           catRef.current = nextCat;
@@ -206,6 +284,9 @@ export default function PlatformView() {
             onLoadEnd={() => {
               clearLoadTimeout();
               setLoading(false);
+              // Fallback start for the injection-disabled case, where no
+              // 'quiet-nav' will ever arrive. No-op once already started.
+              startTracking();
             }}
             onError={() => {
               clearLoadTimeout();
