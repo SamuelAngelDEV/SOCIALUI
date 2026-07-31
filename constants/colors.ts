@@ -18,23 +18,23 @@
  * See research/03-visual-direction.md.
  */
 export const Colors = {
-  background: '#F5F2F4', // warm mauve-neutral ground
-  surface: '#FCFBFC', // cards, rows
+  background: '#F7F0F8', // lilac-tinted ground — 36% saturation, up from 13%
+  surface: '#FDFAFE', // cards, rows
   surfaceElevated: '#FFFFFF', // modals and overlays only
 
-  textPrimary: '#221E24', // 14.77:1
-  textSecondary: '#5A525F', // 6.73:1
-  textTertiary: '#6D6472', // 5.08:1
-  textOnFill: '#FFFFFF', // on primary/plumFill — 6.16:1
+  textPrimary: '#241C28', // 14.76:1
+  textSecondary: '#5E5166', // 6.60:1
+  textTertiary: '#71627A', // 5.03:1
+  textOnFill: '#FFFFFF', // on primary/primaryFill — 7.79:1
 
-  primary: '#5B3A5B', // plum, brand — 8.58:1 as text
-  primaryFill: '#7A5480', // filled buttons — 6.16:1 with white on top
-  primaryLine: '#8E6694', // rules, focus rings — 4.22:1
-  primarySubtle: '#EFE6F0', // banners, selected rows — 13.48:1 with textPrimary
+  primary: '#6B2D78', // plum, brand — 8.26:1 as text. 45% saturation, up from 22%.
+  primaryFill: '#7B3489', // filled buttons — 7.79:1 with white on top
+  primaryLine: '#9455A3', // rules, focus rings — 4.59:1
+  primarySubtle: '#F0DDF4', // banners, selected rows — 12.86:1 with textPrimary
 
-  success: '#3F6147', // 6.27:1
-  warning: '#8A6414', // brass — 4.83:1. Semantic only; not a brand colour.
-  destructive: '#9A3324', // 6.57:1
+  success: '#2F7350', // 5.09:1
+  warning: '#96610F', // 4.68:1. Semantic only; not a brand colour.
+  destructive: '#B32D2D', // 5.64:1
 
   /**
    * Activity categories. Two registers per category: `cat*` is the chart mark
@@ -44,28 +44,28 @@ export const Colors = {
    * split reads as a family before any label is read. Colour never carries the
    * meaning alone — always pair a mark with its label.
    */
-  catFeed: '#7A5480', // algorithmic — 5.54:1
-  catReels: '#A34A6B', // algorithmic — 5.04:1
-  catMessages: '#2F6E6A', // intentional — 5.31:1
-  catVideo: '#3A5F8A', // intentional — 5.93:1
-  catOther: '#8A8080', // unclassified — 3.45:1
+  catFeed: '#8A3D9E', // algorithmic — 5.79:1
+  catReels: '#C13B6B', // algorithmic — 4.57:1
+  catMessages: '#1E7A72', // intentional — 4.60:1
+  catVideo: '#2F63A8', // intentional — 5.41:1
+  catOther: '#8E8296', // unclassified — 3.25:1
 
-  catTextFeed: '#5B3A5B', // 8.58:1
-  catTextReels: '#8E3757', // 6.66:1
-  catTextMessages: '#245853', // 7.28:1
-  catTextVideo: '#2F4E73', // 7.68:1
-  catTextOther: '#6E6672', // 4.96:1
+  catTextFeed: '#6B2D78', // 8.26:1
+  catTextReels: '#A32B58', // 6.17:1
+  catTextMessages: '#166159', // 6.50:1
+  catTextVideo: '#28518A', // 7.13:1
+  catTextOther: '#6E6377', // 5.05:1
 
-  border: '#E6E0E8', // decorative hairline — no WCAG minimum
-  borderControl: '#8B838F', // input/control boundary — 3.29:1
-  separator: '#E6E0E8', // hairline between settings rows
-  groupedBackground: '#EDEAEC', // grouped-list backdrop
+  border: '#E8DCEC', // decorative hairline — no WCAG minimum
+  borderControl: '#94829C', // input/control boundary — 3.16:1. #9B8AA3 fails at 2.86:1.
+  separator: '#E8DCEC', // hairline between settings rows
+  groupedBackground: '#EFE6F2', // grouped-list backdrop
 
   /**
    * Switch track, on. Uses the brand fill so the control reads as ours rather
-   * than as the iOS default green. 5.54:1 against `background`.
+   * than as the iOS default green. 5.79:1 against `background`.
    */
-  switchOn: '#7A5480',
+  switchOn: '#7B3489',
   /**
    * Switch track, off. React Native's `Switch` is the native control and takes
    * no border, so this cannot reach the 3:1 of SC 1.4.11 on its own — iOS's own
@@ -73,11 +73,11 @@ export const Colors = {
    * leaning on the adjacent row label to carry state, rather than shipping a
    * heavy grey track that reads as enabled.
    */
-  switchOff: '#D6CFD8',
+  switchOff: '#DCCCE2',
 
-  badgeRed: '#9A3324', // BETA sticker — 7.31:1 with white on top
-  accentGold: '#8A6414', // BLOCK ONLY sticker — 5.37:1 with white on top
-  pillSubtle: 'rgba(122,84,128,0.12)', // Always-On pill fill, tinted from primaryFill
+  badgeRed: '#B32D2D', // BETA sticker — 5.94:1 with white on top
+  accentGold: '#96610F', // BLOCK ONLY sticker — 4.99:1 with white on top
+  pillSubtle: 'rgba(123,52,137,0.12)', // Always-On pill fill, tinted from primaryFill
 };
 
 /**
