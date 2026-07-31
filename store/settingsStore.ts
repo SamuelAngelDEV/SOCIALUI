@@ -12,6 +12,16 @@ import {
 } from '@/constants/features';
 import { dayKey } from '@/utils/stats';
 import { PRESETS } from '@/constants/presets';
+import {
+  AmountAnswer,
+  GoalAnswer,
+  isAmountAnswer,
+  isGoalAnswer,
+  isKeepAnswer,
+  isWhenAnswer,
+  KeepAnswer,
+  WhenAnswer,
+} from '@/constants/survey';
 
 type PlatformSettings = Record<string, boolean | MetricVisibility>;
 
@@ -33,6 +43,20 @@ const MASTER_DEFAULTS: MasterSettings = {
 type SettingsState = {
   onboarded: boolean;
   goals: string[];
+  /**
+   * The rest of the onboarding survey. Every field is optional: an install that
+   * onboarded before these questions existed hydrates with them undefined, and
+   * every reader has to treat "not asked" as its own case anyway — it is not
+   * the same as an empty answer.
+   */
+  /** Q2 — the user's own guess at a day, for the report to compare against. */
+  timeEstimate?: AmountAnswer;
+  /** Q3 — the window(s) they think they lose time in. Seeds Rhythm's prior. */
+  timeOfDay?: WhenAnswer[];
+  /** Q4 — what has to keep working. This is what chose the mode. */
+  keeps?: KeepAnswer[];
+  /** Q5 — what the weekly report measures against, in place of a streak. */
+  monthGoal?: GoalAnswer;
   platformEnabled: Record<PlatformId, boolean>;
   platformSettings: Record<PlatformId, PlatformSettings>;
   /** How many posts before "Limit Feed" stops the feed, per platform. */
@@ -44,6 +68,10 @@ type SettingsState = {
   setHasHydrated: (value: boolean) => void;
   setOnboarded: (value: boolean) => void;
   setGoals: (goals: string[]) => void;
+  setTimeEstimate: (value: AmountAnswer) => void;
+  setTimeOfDay: (values: WhenAnswer[]) => void;
+  setKeeps: (values: KeepAnswer[]) => void;
+  setMonthGoal: (value: GoalAnswer) => void;
   applyPreset: (presetId: string) => void;
   setToggle: (platform: PlatformId, key: string, value: boolean) => void;
   setMetricToggle: (platform: PlatformId, key: string, value: MetricVisibility) => void;
@@ -84,6 +112,10 @@ export const useSettingsStore = create<SettingsState>()(
       setHasHydrated: (value) => set({ _hasHydrated: value }),
       setOnboarded: (value) => set({ onboarded: value }),
       setGoals: (goals) => set({ goals }),
+      setTimeEstimate: (value) => set({ timeEstimate: value }),
+      setTimeOfDay: (values) => set({ timeOfDay: values }),
+      setKeeps: (values) => set({ keeps: values }),
+      setMonthGoal: (value) => set({ monthGoal: value }),
 
       applyPreset: (presetId) =>
         set((state) => {
@@ -169,6 +201,10 @@ export const useSettingsStore = create<SettingsState>()(
       partialize: (state) => ({
         onboarded: state.onboarded,
         goals: state.goals,
+        timeEstimate: state.timeEstimate,
+        timeOfDay: state.timeOfDay,
+        keeps: state.keeps,
+        monthGoal: state.monthGoal,
         platformEnabled: state.platformEnabled,
         platformSettings: state.platformSettings,
         feedLimits: state.feedLimits,
@@ -219,6 +255,12 @@ export const useSettingsStore = create<SettingsState>()(
           ...current,
           onboarded: saved.onboarded ?? false,
           goals: saved.goals ?? [],
+          timeEstimate: isAmountAnswer(saved.timeEstimate) ? saved.timeEstimate : undefined,
+          timeOfDay: Array.isArray(saved.timeOfDay)
+            ? saved.timeOfDay.filter(isWhenAnswer)
+            : undefined,
+          keeps: Array.isArray(saved.keeps) ? saved.keeps.filter(isKeepAnswer) : undefined,
+          monthGoal: isGoalAnswer(saved.monthGoal) ? saved.monthGoal : undefined,
           platformEnabled: { ...current.platformEnabled, ...(saved.platformEnabled ?? {}) },
           platformSettings: mergedSettings,
           feedLimits: mergedLimits,

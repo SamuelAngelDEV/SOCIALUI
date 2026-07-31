@@ -110,7 +110,25 @@ export const Strings = {
 
     next: 'Next',
     skip: 'Skip',
+    back: 'Back',
     getStarted: 'Get started',
+  },
+
+  insights: {
+    /**
+     * Shown on the Rhythm card before there is enough measured data for a
+     * finding, when onboarding's Q3 gave us a window to check. States what the
+     * user told us and that we haven't verified it — it is their claim on the
+     * screen, not ours.
+     */
+    rhythmStated: (window: string) =>
+      `You said it usually gets away from you ${window}. We'll confirm or correct that once there are a few days of data.`,
+    /** Compares onboarding's Q2 guess to the first week actually measured. */
+    guessVsMeasured: (guess: string, measured: string) =>
+      `You guessed ${guess} a day. You're actually averaging ${measured}.`,
+    /** Same comparison, phrased for someone who answered "I honestly don't know". */
+    guessUnsureMeasured: (measured: string) =>
+      `You weren't sure how much time this was taking. Now you have a number: ${measured} a day.`,
   },
 
   settings: {

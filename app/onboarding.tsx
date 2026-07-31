@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import {
   Animated,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -10,6 +11,8 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  Check,
+  ChevronLeft,
   Clock,
   Film,
   Heart,
@@ -25,17 +28,28 @@ import { Typography } from '@/constants/typography';
 import { Radii, Size, Spacing } from '@/constants/spacing';
 import { Strings } from '@/constants/strings';
 import { PRESETS, presetForGoals } from '@/constants/presets';
+import {
+  AMOUNT_OPTIONS,
+  AmountAnswer,
+  GOAL_OPTIONS,
+  GoalAnswer,
+  GOALS_OPTIONS,
+  KEEP_OPTIONS,
+  KeepAnswer,
+  WHEN_OPTIONS,
+  WhenAnswer,
+} from '@/constants/survey';
 import { useSettingsStore } from '@/store/settingsStore';
 
 const COPY = Strings.onboarding;
 
-const GOALS = [
-  { id: 'scrolling', label: COPY.goals.scrolling, Icon: ScrollText },
-  { id: 'reels', label: COPY.goals.reels, Icon: Film },
-  { id: 'counts', label: COPY.goals.counts, Icon: Heart },
-  { id: 'time', label: COPY.goals.time, Icon: Clock },
-  { id: 'habit', label: COPY.goals.habit, Icon: Smartphone },
-] as const;
+const GOAL_ICONS: Record<string, typeof ScrollText> = {
+  scrolling: ScrollText,
+  reels: Film,
+  counts: Heart,
+  time: Clock,
+  habit: Smartphone,
+};
 
 const REASSURANCES = [
   { Icon: Shield, text: COPY.done.dmsWork },
@@ -44,18 +58,96 @@ const REASSURANCES = [
   { Icon: Hourglass, text: COPY.done.feedEnds },
 ] as const;
 
+/** Question steps, in order. Presets and done follow after. */
+const QUESTION_COUNT = 5;
+const PRESETS_STEP = QUESTION_COUNT; // 5
+const DONE_STEP = QUESTION_COUNT + 1; // 6
+const STEP_COUNT = QUESTION_COUNT + 2; // 7
+
+/** Toggle `id` in a multi-select list, clearing it if `exclusiveId` (an "I don't
+ *  know" / "opt out entirely" answer) is involved on either side of the tap. */
+function toggleExclusive<T extends string>(current: T[], id: T, exclusiveId: T): T[] {
+  if (id === exclusiveId) {
+    return current.includes(id) ? [] : [exclusiveId];
+  }
+  const withoutExclusive = current.filter((c) => c !== exclusiveId);
+  return withoutExclusive.includes(id)
+    ? withoutExclusive.filter((c) => c !== id)
+    : [...withoutExclusive, id];
+}
+
+/** Every answer collected so far, turned into the ids `presetForGoals` understands. */
+function combinedGoalIds(
+  goals: string[],
+  keeps: KeepAnswer[],
+  when: WhenAnswer[],
+  goal: GoalAnswer | null
+): string[] {
+  return [
+    ...goals,
+    ...keeps.map((id) => `keep_${id}`),
+    ...when.map((id) => `when_${id}`),
+    ...(goal ? [`goal_${goal}`] : []),
+  ];
+}
+
+/** A single-select or multi-select row with a large tap target. */
+function OptionRow({
+  label,
+  selected,
+  multi,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  multi: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={[styles.optionRow, selected && styles.optionRowSelected]}
+      onPress={onPress}
+    >
+      <View
+        style={[
+          styles.optionIndicator,
+          multi ? styles.optionIndicatorSquare : styles.optionIndicatorCircle,
+          selected && styles.optionIndicatorSelected,
+        ]}
+      >
+        {selected && (multi ? <Check size={13} color={Colors.surface} /> : <View style={styles.optionDot} />)}
+      </View>
+      <Text
+        style={[Typography.body, styles.optionLabel, selected && styles.optionLabelSelected]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 export default function Onboarding() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [step, setStep] = useState(0);
   const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
+  const [amount, setAmount] = useState<AmountAnswer | null>(null);
+  const [when, setWhen] = useState<WhenAnswer[]>([]);
+  const [keeps, setKeeps] = useState<KeepAnswer[]>([]);
+  const [goal, setGoal] = useState<GoalAnswer | null>(null);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const slideX = useRef(new Animated.Value(0)).current;
 
   const setOnboarded = useSettingsStore((s) => s.setOnboarded);
   const setGoals = useSettingsStore((s) => s.setGoals);
+  const setTimeEstimate = useSettingsStore((s) => s.setTimeEstimate);
+  const setTimeOfDay = useSettingsStore((s) => s.setTimeOfDay);
+  const setKeepsStore = useSettingsStore((s) => s.setKeeps);
+  const setMonthGoal = useSettingsStore((s) => s.setMonthGoal);
   const applyPreset = useSettingsStore((s) => s.applyPreset);
+
+  const recommendedPresetId = presetForGoals(combinedGoalIds(selectedGoals, keeps, when, goal));
 
   const animateTo = (nextStep: number) => {
     const direction = nextStep > step ? 1 : -1;
@@ -80,15 +172,48 @@ export default function Onboarding() {
     );
   };
 
+  const canAdvance = (() => {
+    switch (step) {
+      case 0:
+        return selectedGoals.length > 0;
+      case 1:
+        return amount !== null;
+      case 2:
+        return when.length > 0;
+      case 3:
+        return keeps.length > 0;
+      case 4:
+        return goal !== null;
+      default:
+        return true;
+    }
+  })();
+
   const handleNext = () => {
+    if (!canAdvance) return;
     if (step === 0) {
       setGoals(selectedGoals);
-      const recommended = presetForGoals(selectedGoals);
-      setSelectedPreset(recommended);
       animateTo(1);
     } else if (step === 1) {
+      if (amount) setTimeEstimate(amount);
       animateTo(2);
+    } else if (step === 2) {
+      setTimeOfDay(when);
+      animateTo(3);
+    } else if (step === 3) {
+      setKeepsStore(keeps);
+      animateTo(4);
+    } else if (step === 4) {
+      if (goal) setMonthGoal(goal);
+      setSelectedPreset(presetForGoals(combinedGoalIds(selectedGoals, keeps, when, goal)));
+      animateTo(PRESETS_STEP);
+    } else if (step === PRESETS_STEP) {
+      animateTo(DONE_STEP);
     }
+  };
+
+  const handleBack = () => {
+    if (step > 0) animateTo(step - 1);
   };
 
   const handleFinish = () => {
@@ -102,18 +227,32 @@ export default function Onboarding() {
       style={[
         styles.container,
         {
-          paddingTop: insets.top + Spacing.xxxl,
+          paddingTop: insets.top + Spacing.xl,
           paddingBottom: insets.bottom + Spacing.xxl,
         },
       ]}
     >
+      <View style={styles.navHeader}>
+        {step > 0 && (
+          <Pressable style={styles.backBtn} onPress={handleBack} hitSlop={12}>
+            <ChevronLeft size={20} color={Colors.textSecondary} />
+            <Text style={[Typography.body, styles.backText]}>{COPY.back}</Text>
+          </Pressable>
+        )}
+      </View>
+
       <Animated.View style={[styles.stepWrap, { transform: [{ translateX: slideX }] }]}>
         {step === 0 && (
-          <View style={styles.step}>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.stepContent}
+            showsVerticalScrollIndicator={false}
+          >
             <Text style={[Typography.largeTitle, styles.title]}>{COPY.goals.title}</Text>
             <Text style={[Typography.body, styles.subtitle]}>{COPY.goals.subtitle}</Text>
             <View style={styles.chipGrid}>
-              {GOALS.map(({ id, label, Icon }) => {
+              {GOALS_OPTIONS.map(({ id, label }) => {
+                const Icon = GOAL_ICONS[id];
                 const on = selectedGoals.includes(id);
                 return (
                   <Pressable
@@ -135,17 +274,117 @@ export default function Onboarding() {
                 );
               })}
             </View>
-          </View>
+          </ScrollView>
         )}
 
         {step === 1 && (
-          <View style={styles.step}>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.stepContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={[Typography.largeTitle, styles.title]}>{COPY.amount.title}</Text>
+            <Text style={[Typography.body, styles.subtitle]}>{COPY.amount.subtitle}</Text>
+            <View style={styles.optionList}>
+              {AMOUNT_OPTIONS.map(({ id, label }) => (
+                <OptionRow
+                  key={id}
+                  label={label}
+                  multi={false}
+                  selected={amount === id}
+                  onPress={() => setAmount(id)}
+                />
+              ))}
+            </View>
+            {amount === 'unsure' && (
+              <Text style={[Typography.callout, styles.unsureNote]}>
+                {COPY.amount.unsureNote}
+              </Text>
+            )}
+          </ScrollView>
+        )}
+
+        {step === 2 && (
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.stepContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={[Typography.largeTitle, styles.title]}>{COPY.when.title}</Text>
+            <Text style={[Typography.body, styles.subtitle]}>{COPY.when.subtitle}</Text>
+            <View style={styles.optionList}>
+              {WHEN_OPTIONS.map(({ id, label }) => (
+                <OptionRow
+                  key={id}
+                  label={label}
+                  multi
+                  selected={when.includes(id)}
+                  onPress={() => setWhen((prev) => toggleExclusive(prev, id, 'unsure'))}
+                />
+              ))}
+            </View>
+            {when.includes('unsure') && (
+              <Text style={[Typography.callout, styles.unsureNote]}>{COPY.when.unsureNote}</Text>
+            )}
+          </ScrollView>
+        )}
+
+        {step === 3 && (
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.stepContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={[Typography.largeTitle, styles.title]}>{COPY.keep.title}</Text>
+            <Text style={[Typography.body, styles.subtitle]}>{COPY.keep.subtitle}</Text>
+            <View style={styles.optionList}>
+              {KEEP_OPTIONS.map(({ id, label }) => (
+                <OptionRow
+                  key={id}
+                  label={label}
+                  multi
+                  selected={keeps.includes(id)}
+                  onPress={() => setKeeps((prev) => toggleExclusive(prev, id, 'nothing'))}
+                />
+              ))}
+            </View>
+          </ScrollView>
+        )}
+
+        {step === 4 && (
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.stepContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={[Typography.largeTitle, styles.title]}>{COPY.goal.title}</Text>
+            <Text style={[Typography.body, styles.subtitle]}>{COPY.goal.subtitle}</Text>
+            <View style={styles.optionList}>
+              {GOAL_OPTIONS.map(({ id, label }) => (
+                <OptionRow
+                  key={id}
+                  label={label}
+                  multi={false}
+                  selected={goal === id}
+                  onPress={() => setGoal(id)}
+                />
+              ))}
+            </View>
+          </ScrollView>
+        )}
+
+        {step === PRESETS_STEP && (
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.stepContent}
+            showsVerticalScrollIndicator={false}
+          >
             <Text style={[Typography.largeTitle, styles.title]}>{COPY.presets.title}</Text>
             <Text style={[Typography.body, styles.subtitle]}>{COPY.presets.subtitle}</Text>
             <View style={styles.presetList}>
               {PRESETS.map((preset) => {
                 const on = selectedPreset === preset.id;
-                const recommended = presetForGoals(selectedGoals) === preset.id;
+                const recommended = recommendedPresetId === preset.id;
                 return (
                   <Pressable
                     key={preset.id}
@@ -174,11 +413,15 @@ export default function Onboarding() {
                 );
               })}
             </View>
-          </View>
+          </ScrollView>
         )}
 
-        {step === 2 && (
-          <View style={styles.step}>
+        {step === DONE_STEP && (
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.stepContent}
+            showsVerticalScrollIndicator={false}
+          >
             <Text style={[Typography.largeTitle, styles.title]}>{COPY.done.title}</Text>
             <Text style={[Typography.body, styles.subtitle]}>{COPY.done.subtitle}</Text>
             <View style={styles.reassuranceList}>
@@ -191,25 +434,22 @@ export default function Onboarding() {
                 </View>
               ))}
             </View>
-          </View>
+          </ScrollView>
         )}
       </Animated.View>
 
       <View style={styles.footer}>
         <View style={styles.dots}>
-          {[0, 1, 2].map((i) => (
-            <View
-              key={i}
-              style={[styles.dot, i === step && styles.dotActive]}
-            />
+          {Array.from({ length: STEP_COUNT }, (_, i) => (
+            <View key={i} style={[styles.dot, i === step && styles.dotActive]} />
           ))}
         </View>
 
-        {step < 2 ? (
+        {step < DONE_STEP ? (
           <Pressable
-            style={[styles.nextBtn, step === 0 && selectedGoals.length === 0 && styles.nextBtnDisabled]}
+            style={[styles.nextBtn, !canAdvance && styles.nextBtnDisabled]}
             onPress={handleNext}
-            disabled={step === 0 && selectedGoals.length === 0}
+            disabled={!canAdvance}
           >
             <Text style={styles.nextText}>{COPY.next}</Text>
           </Pressable>
@@ -229,12 +469,29 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     paddingHorizontal: Spacing.xxl,
   },
+  navHeader: {
+    height: 32,
+    justifyContent: 'center',
+  },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: Spacing.xs,
+  },
+  backText: {
+    color: Colors.textSecondary,
+  },
   stepWrap: {
     flex: 1,
   },
-  step: {
+  scroll: {
     flex: 1,
+  },
+  stepContent: {
+    flexGrow: 1,
     justifyContent: 'center',
+    paddingVertical: Spacing.lg,
   },
   title: {
     textAlign: 'center',
@@ -269,6 +526,59 @@ const styles = StyleSheet.create({
   },
   chipTextSelected: {
     color: Colors.primary,
+  },
+  optionList: {
+    gap: Spacing.md,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingVertical: 14,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Radii.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  optionRowSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primarySubtle,
+  },
+  optionIndicator: {
+    width: 22,
+    height: 22,
+    borderWidth: 1.5,
+    borderColor: Colors.borderControl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionIndicatorCircle: {
+    borderRadius: Radii.pill,
+  },
+  optionIndicatorSquare: {
+    borderRadius: 5,
+  },
+  optionIndicatorSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
+  },
+  optionDot: {
+    width: 10,
+    height: 10,
+    borderRadius: Radii.pill,
+    backgroundColor: Colors.surface,
+  },
+  optionLabel: {
+    flex: 1,
+    color: Colors.textSecondary,
+  },
+  optionLabelSelected: {
+    color: Colors.primary,
+  },
+  unsureNote: {
+    marginTop: Spacing.lg,
+    textAlign: 'center',
   },
   presetList: {
     gap: Spacing.md,
