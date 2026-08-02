@@ -14,26 +14,27 @@ import {
   Check,
   ChevronLeft,
   Clock,
-  Film,
-  Heart,
+  CloudRain,
   Hourglass,
   Lock,
+  Moon,
   Settings,
   Shield,
-  Smartphone,
-  ScrollText,
+  Target,
+  Users,
 } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
 import { Radii, Size, Spacing } from '@/constants/spacing';
 import { Strings } from '@/constants/strings';
-import { PRESETS, presetForGoals } from '@/constants/presets';
+import { PRESETS, recommendMode } from '@/constants/presets';
 import {
   AMOUNT_OPTIONS,
   AmountAnswer,
+  COST_OPTIONS,
+  CostAnswer,
   GOAL_OPTIONS,
   GoalAnswer,
-  GOALS_OPTIONS,
   KEEP_OPTIONS,
   KeepAnswer,
   WHEN_OPTIONS,
@@ -43,12 +44,12 @@ import { useSettingsStore } from '@/store/settingsStore';
 
 const COPY = Strings.onboarding;
 
-const GOAL_ICONS: Record<string, typeof ScrollText> = {
-  scrolling: ScrollText,
-  reels: Film,
-  counts: Heart,
+const COST_ICONS: Record<CostAnswer, typeof Moon> = {
+  sleep: Moon,
+  focus: Target,
+  presence: Users,
+  mood: CloudRain,
   time: Clock,
-  habit: Smartphone,
 };
 
 const REASSURANCES = [
@@ -74,21 +75,6 @@ function toggleExclusive<T extends string>(current: T[], id: T, exclusiveId: T):
   return withoutExclusive.includes(id)
     ? withoutExclusive.filter((c) => c !== id)
     : [...withoutExclusive, id];
-}
-
-/** Every answer collected so far, turned into the ids `presetForGoals` understands. */
-function combinedGoalIds(
-  goals: string[],
-  keeps: KeepAnswer[],
-  when: WhenAnswer[],
-  goal: GoalAnswer | null
-): string[] {
-  return [
-    ...goals,
-    ...keeps.map((id) => `keep_${id}`),
-    ...when.map((id) => `when_${id}`),
-    ...(goal ? [`goal_${goal}`] : []),
-  ];
 }
 
 /** A single-select or multi-select row with a large tap target. */
@@ -131,7 +117,7 @@ export default function Onboarding() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [step, setStep] = useState(0);
-  const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
+  const [costs, setCosts] = useState<CostAnswer[]>([]);
   const [amount, setAmount] = useState<AmountAnswer | null>(null);
   const [when, setWhen] = useState<WhenAnswer[]>([]);
   const [keeps, setKeeps] = useState<KeepAnswer[]>([]);
@@ -140,14 +126,19 @@ export default function Onboarding() {
   const slideX = useRef(new Animated.Value(0)).current;
 
   const setOnboarded = useSettingsStore((s) => s.setOnboarded);
-  const setGoals = useSettingsStore((s) => s.setGoals);
+  const setCostsStore = useSettingsStore((s) => s.setCosts);
   const setTimeEstimate = useSettingsStore((s) => s.setTimeEstimate);
   const setTimeOfDay = useSettingsStore((s) => s.setTimeOfDay);
   const setKeepsStore = useSettingsStore((s) => s.setKeeps);
   const setMonthGoal = useSettingsStore((s) => s.setMonthGoal);
   const applyPreset = useSettingsStore((s) => s.applyPreset);
 
-  const recommendedPresetId = presetForGoals(combinedGoalIds(selectedGoals, keeps, when, goal));
+  /**
+   * Q4 picks the shape, Q1 adjusts it. Recomputed from live answers so stepping
+   * back and changing something is reflected immediately; `selectedPreset` only
+   * diverges once the user deliberately taps a different card.
+   */
+  const recommendation = recommendMode(costs, keeps);
 
   const animateTo = (nextStep: number) => {
     const direction = nextStep > step ? 1 : -1;
@@ -166,16 +157,10 @@ export default function Onboarding() {
     });
   };
 
-  const toggleGoal = (id: string) => {
-    setSelectedGoals((prev) =>
-      prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]
-    );
-  };
-
   const canAdvance = (() => {
     switch (step) {
       case 0:
-        return selectedGoals.length > 0;
+        return costs.length > 0;
       case 1:
         return amount !== null;
       case 2:
@@ -192,7 +177,7 @@ export default function Onboarding() {
   const handleNext = () => {
     if (!canAdvance) return;
     if (step === 0) {
-      setGoals(selectedGoals);
+      setCostsStore(costs);
       animateTo(1);
     } else if (step === 1) {
       if (amount) setTimeEstimate(amount);
@@ -205,7 +190,7 @@ export default function Onboarding() {
       animateTo(4);
     } else if (step === 4) {
       if (goal) setMonthGoal(goal);
-      setSelectedPreset(presetForGoals(combinedGoalIds(selectedGoals, keeps, when, goal)));
+      setSelectedPreset(recommendation.presetId);
       animateTo(PRESETS_STEP);
     } else if (step === PRESETS_STEP) {
       animateTo(DONE_STEP);
@@ -217,7 +202,18 @@ export default function Onboarding() {
   };
 
   const handleFinish = () => {
-    if (selectedPreset) applyPreset(selectedPreset);
+    // The cap and the count-hiding only apply when the user kept the
+    // recommendation — they were derived from Q1 for that specific mode, and
+    // carrying them onto a mode the user chose instead would be putting words
+    // in their mouth.
+    const presetId = selectedPreset ?? recommendation.presetId;
+    const tookRecommendation = presetId === recommendation.presetId;
+    applyPreset(
+      presetId,
+      tookRecommendation
+        ? { feedLimit: recommendation.feedLimit, hideCounts: recommendation.hideCounts }
+        : undefined
+    );
     setOnboarded(true);
     router.replace('/');
   };
@@ -248,17 +244,17 @@ export default function Onboarding() {
             contentContainerStyle={styles.stepContent}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={[Typography.largeTitle, styles.title]}>{COPY.goals.title}</Text>
-            <Text style={[Typography.body, styles.subtitle]}>{COPY.goals.subtitle}</Text>
+            <Text style={[Typography.largeTitle, styles.title]}>{COPY.cost.title}</Text>
+            <Text style={[Typography.body, styles.subtitle]}>{COPY.cost.subtitle}</Text>
             <View style={styles.chipGrid}>
-              {GOALS_OPTIONS.map(({ id, label }) => {
-                const Icon = GOAL_ICONS[id];
-                const on = selectedGoals.includes(id);
+              {COST_OPTIONS.map(({ id, label }) => {
+                const Icon = COST_ICONS[id];
+                const on = costs.includes(id);
                 return (
                   <Pressable
                     key={id}
                     style={[styles.chip, on && styles.chipSelected]}
-                    onPress={() => toggleGoal(id)}
+                    onPress={() => setCosts((prev) => toggleExclusive(prev, id, 'time'))}
                   >
                     <Icon size={18} color={on ? Colors.primary : Colors.textSecondary} />
                     <Text
@@ -274,6 +270,9 @@ export default function Onboarding() {
                 );
               })}
             </View>
+            {costs.includes('time') && (
+              <Text style={[Typography.callout, styles.unsureNote]}>{COPY.cost.timeNote}</Text>
+            )}
           </ScrollView>
         )}
 
@@ -384,7 +383,7 @@ export default function Onboarding() {
             <View style={styles.presetList}>
               {PRESETS.map((preset) => {
                 const on = selectedPreset === preset.id;
-                const recommended = recommendedPresetId === preset.id;
+                const recommended = recommendation.presetId === preset.id;
                 return (
                   <Pressable
                     key={preset.id}
@@ -395,6 +394,7 @@ export default function Onboarding() {
                       <Text
                         style={[
                           Typography.headline,
+                          styles.presetName,
                           on && { color: Colors.primary },
                         ]}
                       >
@@ -409,6 +409,14 @@ export default function Onboarding() {
                     <Text style={[Typography.callout, styles.presetDesc]}>
                       {preset.description}
                     </Text>
+                    {/* Why this one, on the recommended card only — a
+                        recommendation you can't audit is just an assertion. */}
+                    {recommended && (
+                      <Text style={[Typography.callout, styles.presetReason]}>
+                        {COPY.presets.because(recommendation.reason)}
+                        {recommendation.note ? ` ${recommendation.note}` : ''}
+                      </Text>
+                    )}
                   </Pressable>
                 );
               })}
@@ -423,7 +431,9 @@ export default function Onboarding() {
             showsVerticalScrollIndicator={false}
           >
             <Text style={[Typography.largeTitle, styles.title]}>{COPY.done.title}</Text>
-            <Text style={[Typography.body, styles.subtitle]}>{COPY.done.subtitle}</Text>
+            <Text style={[Typography.body, styles.subtitle]}>
+              {COPY.done.subtitle(Strings.app.name)}
+            </Text>
             <View style={styles.reassuranceList}>
               {REASSURANCES.map(({ Icon, text }) => (
                 <View key={text} style={styles.reassuranceRow}>
@@ -599,10 +609,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: Spacing.sm,
     marginBottom: Spacing.xs,
+  },
+  presetName: {
+    flexShrink: 1,
   },
   presetDesc: {
     color: Colors.textSecondary,
+  },
+  presetReason: {
+    marginTop: Spacing.sm,
+    color: Colors.textTertiary,
   },
   recommendedBadge: {
     backgroundColor: Colors.primary,

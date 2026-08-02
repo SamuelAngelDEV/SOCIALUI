@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronDown, ChevronLeft, ChevronUp } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
 import { PLATFORMS, PlatformId } from '@/constants/platforms';
@@ -11,7 +12,7 @@ import { useStatsStore, DayStats } from '@/store/statsStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { AMOUNT_BANDS, AMOUNT_PHRASE, AmountAnswer, GoalAnswer, statedWindows } from '@/constants/survey';
 import { Strings } from '@/constants/strings';
-import { computeReclaimed, formatSpan } from '@/utils/reclaimed';
+import { computeReclaimed, formatSpan, MIN_FULL_WEEKS } from '@/utils/reclaimed';
 import {
   categoriesOfKind,
   Category,
@@ -24,11 +25,29 @@ import {
   hourHistogram,
   KIND_LABELS,
   lastNDayKeys,
+  RHYTHM_MIN_DAYS,
+  RHYTHM_MIN_MS,
   RHYTHM_WINDOW_DAYS,
   splitByKind,
   weekDays,
   weekKey,
 } from '@/utils/stats';
+
+const COPY = Strings.insights;
+
+/** One threshold's state, for the learning card and the still-counting strip. */
+type UnlockState = { label: string; ready: boolean; status: string };
+
+/** "Tuesday" for a day inside the last week, otherwise a short date. */
+function formatDayLabel(key: string): string {
+  const [y, m, d] = key.split('-').map(Number);
+  if (!y || !m || !d) return key;
+  const date = new Date(y, m - 1, d);
+  const ageDays = Math.floor((Date.now() - date.getTime()) / 86_400_000);
+  return ageDays < 7
+    ? date.toLocaleDateString(undefined, { weekday: 'long' })
+    : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
 
 /** Gold for what the ranking model chose, green for what the user chose. */
 const ALGORITHMIC_COLOR = Colors.accentGold;
@@ -101,33 +120,21 @@ function buildFeedback(
     );
   }
 
-  const platforms = Object.entries(week.platforms).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0));
-  if (platforms.length) {
-    const [pid, ms] = platforms[0];
-    const share = Math.round(((ms ?? 0) / week.total) * 100);
-    const name = PLATFORMS[pid as PlatformId]?.name ?? pid;
-    lines.push(`${name} took the most of your time — ${formatDuration(ms ?? 0)} (${share}% of the week).`);
-
-    // Now that activity is tracked per app, name the specific driver.
-    const topCats = Object.entries(week.byPlatform[pid as PlatformId] ?? {})
-      .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0));
-    if (topCats.length) {
-      const [cat, catMs] = topCats[0];
-      lines.push(
-        `On ${name}, most of it was ${CATEGORY_LABELS[cat as Category].toLowerCase()} ` +
-        `(${formatDuration(catMs ?? 0)}).`
-      );
-    }
-  }
+  // The per-app breakdown used to be restated here in prose. It isn't any more:
+  // the app cards directly above show the same numbers with a bar each, and
+  // saying it twice was a large part of why this screen read as padded.
 
   if (prev.total > 0) {
     const delta = week.total - prev.total;
     const pct = Math.round((Math.abs(delta) / prev.total) * 100);
     if (pct >= 5) {
+      // No credit taken for the fall, per the rule in utils/reclaimed.ts — the
+      // old copy here said "the app is doing its job", which is exactly the
+      // counterfactual that file exists to refuse.
       lines.push(
         delta < 0
-          ? `Down ${pct}% from the week before. The app is doing its job.`
-          : `Up ${pct}% from the week before. Worth a look at where it went.`
+          ? `Down ${pct}% from the week before.`
+          : `Up ${pct}% from the week before.`
       );
     } else {
       lines.push('About the same as the week before.');
@@ -204,30 +211,23 @@ function goalProgressLine(
  * The headline. Screen Time reports which app; this reports which kind of screen.
  * Percentages are taken over classified time only — see CATEGORY_KIND in utils/stats
  * for why 'other' sits outside the ratio.
+ *
+ * Only rendered once there IS a split to show. The "nothing yet" case belongs to
+ * `LearningCard`, which states it once for the whole screen rather than leaving a
+ * one-sentence stub here.
  */
 function SplitCard({ categories }: { categories: Partial<Record<Category, number>> }) {
   const split = splitByKind(categories);
-
-  if (split.algorithmicShare === null) {
-    return (
-      <View style={styles.card}>
-        <Text style={[Typography.body, styles.muted]}>
-          Nothing to split yet this week. Once you spend time in an app, it shows up here.
-        </Text>
-      </View>
-    );
-  }
+  if (split.algorithmicShare === null) return null;
 
   const algoPct = Math.round(split.algorithmicShare * 100);
 
   return (
     <View style={styles.card}>
       <Text style={[Typography.largeTitle, styles.splitHeadline]}>
-        {algoPct}% of your time was chosen for you.
+        {algoPct}% {COPY.splitHeadline}
       </Text>
-      <Text style={[Typography.callout, styles.splitSub]}>
-        Feeds and reels are ranked by an algorithm. Messages and the videos you open are not.
-      </Text>
+      <Text style={[Typography.callout, styles.splitSub]}>{COPY.splitBody}</Text>
 
       <SplitBar
         segments={[
@@ -250,15 +250,22 @@ function SplitCard({ categories }: { categories: Partial<Record<Category, number
 
       {split.unclassified > 0 && (
         <Text style={[Typography.callout, styles.splitFootnote]}>
-          {formatDuration(split.unclassified)} was profiles, search and settings — we can&apos;t
-          tell which side that belongs on, so it stays out of the split.
+          {COPY.splitUnclassified(formatDuration(split.unclassified))}
         </Text>
       )}
     </View>
   );
 }
 
-/** When the algorithm gets the most of the day. Informational — no target, no nudge. */
+/**
+ * When the algorithm gets the most of the day. Informational — no target, no nudge.
+ *
+ * The finding is the product; the band underneath is evidence for it. That order
+ * is deliberate (`research/02` §6): the hourly chart is a commodity — a competitor
+ * already ships one and gets nothing for it — while the named window is the thing
+ * nobody else says out loud. Rendered only when there is a finding, or when
+ * onboarding gave us a claim of the user's own to repeat back.
+ */
 function RhythmCard({
   histogram,
   statedWindow,
@@ -268,6 +275,7 @@ function RhythmCard({
   statedWindow: string | null;
 }) {
   const finding = findRhythmWindow(histogram);
+  if (!finding && !statedWindow) return null;
 
   return (
     <View style={styles.card}>
@@ -275,17 +283,12 @@ function RhythmCard({
         <>
           <Text style={[Typography.title, styles.rhythmHeadline]}>{describeRhythm(finding)}</Text>
           <Text style={[Typography.callout, styles.splitSub]}>
-            From your last {histogram.daysWithData} days with activity. Worth knowing, that&apos;s all.
+            {COPY.rhythmEvidence(histogram.daysWithData)}
           </Text>
         </>
-      ) : statedWindow ? (
-        <Text style={[Typography.body, styles.muted]}>
-          {Strings.insights.rhythmStated(statedWindow)}
-        </Text>
       ) : (
-        <Text style={[Typography.body, styles.muted]}>
-          Still learning your rhythm. A few more days of data and there&apos;ll be enough here
-          to say something honest about when feeds take the most of your day.
+        <Text style={[Typography.body, styles.muted, styles.splitSub]}>
+          {COPY.rhythmStated(statedWindow!)}
         </Text>
       )}
 
@@ -294,7 +297,93 @@ function RhythmCard({
         highlightStart={finding?.startHour}
         highlightLength={finding?.lengthHours}
         color={ALGORITHMIC_COLOR}
+        height={48}
+        showAxis={false}
       />
+    </View>
+  );
+}
+
+/** One "name — status" line, shared by the learning card and the still-counting strip. */
+function UnlockRow({ label, status, ready }: {
+  label: string;
+  status: string;
+  ready: boolean;
+}) {
+  return (
+    <View style={styles.unlockRow}>
+      <Text style={[Typography.body, !ready && styles.muted]}>{label}</Text>
+      <Text style={[Typography.callout, ready ? styles.unlockReady : styles.unlockPending]}>
+        {status}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * THE FRESH-INSTALL SCREEN.
+ *
+ * Replaces what used to be four separate near-empty cards, each printing its own
+ * "not enough data yet" sentence under its own heading. Rendering the mature
+ * layout with the slots empty is what made this screen look broken on day one.
+ *
+ * Saying it once, and naming what each reader is still waiting for, is both
+ * fuller and more honest — it answers "how does it decide things" before it has
+ * decided anything, which is the only time that answer is free of spin.
+ */
+function LearningCard({ since, rows }: { since: string | null; rows: UnlockState[] }) {
+  return (
+    <View style={styles.card}>
+      <Text style={[Typography.title, styles.rhythmHeadline]}>
+        {since ? COPY.learningTitle(since) : COPY.learningFirstDay}
+      </Text>
+      {since && (
+        <Text style={[Typography.callout, styles.splitSub]}>{COPY.learningBody}</Text>
+      )}
+      <View style={styles.unlockList}>
+        {rows.map((r) => (
+          <UnlockRow key={r.label} label={r.label} status={r.status} ready={r.ready} />
+        ))}
+      </View>
+      <Text style={[Typography.callout, styles.splitFootnote]}>{COPY.learningFooter}</Text>
+    </View>
+  );
+}
+
+/** The collapsed methodology note. One place that states every threshold. */
+function MethodCard() {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.card}>
+      <Pressable
+        style={styles.methodHeader}
+        onPress={() => setOpen((v) => !v)}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+      >
+        <Text style={Typography.headline}>{COPY.methodTitle}</Text>
+        {open ? (
+          <ChevronUp size={18} color={Colors.textSecondary} />
+        ) : (
+          <ChevronDown size={18} color={Colors.textSecondary} />
+        )}
+      </Pressable>
+      {open && (
+        <View style={styles.methodBody}>
+          {[
+            COPY.methodTiming,
+            COPY.methodSplit,
+            COPY.methodRhythm(RHYTHM_MIN_DAYS, Math.round(RHYTHM_MIN_MS / 60_000)),
+            COPY.methodTrend(MIN_FULL_WEEKS),
+            COPY.methodNoCredit,
+          ].map((line) => (
+            <Text key={line} style={[Typography.callout, styles.methodLine]}>
+              {line}
+            </Text>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -310,16 +399,9 @@ function RhythmCard({
 function ReclaimedCard({ days }: { days: Record<string, DayStats> }) {
   const r = computeReclaimed(days);
 
-  if (r.kind === 'learning') {
-    return (
-      <View style={styles.card}>
-        <Text style={[Typography.body, styles.muted]}>
-          Once there are two full weeks here, this will show what your usage works out
-          to over a year — and whether it&apos;s moving.
-        </Text>
-      </View>
-    );
-  }
+  // The 'learning' branch is not rendered here. It is reported once, alongside
+  // the other two thresholds, by LearningCard / the still-counting strip.
+  if (r.kind === 'learning') return null;
 
   if (r.kind === 'rate') {
     return (
@@ -471,6 +553,45 @@ export default function Insights() {
     .filter(([, ms]) => ms > 0)
     .sort((a, b) => b[1] - a[1]);
 
+  // ── What each reader is allowed to say yet ──────────────────────────────
+  // One place, three thresholds. Previously each card decided this for itself
+  // and printed its own variant of "not yet", which is how the screen ended up
+  // with four different ways of saying the same thing.
+  const hasSplit = splitByKind(week.categories).algorithmicShare !== null;
+  const hasRhythm = findRhythmWindow(rhythm) !== null;
+  const reclaimed = computeReclaimed(days);
+  const hasTrend = reclaimed.kind !== 'learning';
+
+  const rhythmDaysLeft = Math.max(0, RHYTHM_MIN_DAYS - rhythm.daysWithData);
+  const trendWeeksLeft =
+    reclaimed.kind === 'learning' ? Math.max(1, MIN_FULL_WEEKS - reclaimed.fullWeeks) : 0;
+
+  const unlocks: UnlockState[] = [
+    {
+      label: COPY.unlockSplit,
+      ready: hasSplit,
+      status: hasSplit ? COPY.unlockReady : COPY.unlockDays(1),
+    },
+    {
+      label: COPY.unlockRhythm,
+      ready: hasRhythm,
+      status: hasRhythm
+        ? COPY.unlockReady
+        : rhythmDaysLeft > 0
+          ? COPY.unlockDays(rhythmDaysLeft)
+          : COPY.unlockWatching,
+    },
+    {
+      label: COPY.unlockTrend,
+      ready: hasTrend,
+      status: hasTrend ? COPY.unlockReady : COPY.unlockWeeks(trendWeeksLeft),
+    },
+  ];
+  const pending = unlocks.filter((u) => !u.ready);
+
+  const firstDayKey = Object.keys(days).sort()[0];
+  const countingSince = firstDayKey ? formatDayLabel(firstDayKey) : null;
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
       <View style={styles.header}>
@@ -478,10 +599,8 @@ export default function Insights() {
           <ChevronLeft size={26} color={Colors.textPrimary} />
         </Pressable>
         <View>
-          <Text style={Typography.title}>Insights</Text>
-          <Text style={[Typography.callout, styles.subtitle]}>
-            Counted on your phone. Never uploaded.
-          </Text>
+          <Text style={Typography.title}>{COPY.title}</Text>
+          <Text style={[Typography.callout, styles.subtitle]}>{COPY.subtitle}</Text>
         </View>
       </View>
 
@@ -489,30 +608,35 @@ export default function Insights() {
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.sectionTitle}>WHO CHOSE IT — THIS WEEK</Text>
-        <SplitCard categories={week.categories} />
-
-        {rhythm.total > 0 && (
+        {!hasSplit ? (
+          /* Nothing measured yet — one complete card instead of four stubs. */
+          <LearningCard since={countingSince} rows={unlocks} />
+        ) : (
           <>
-            <Text style={styles.sectionTitle}>YOUR RHYTHM</Text>
-            <RhythmCard histogram={rhythm} statedWindow={statedWindowText} />
-          </>
-        )}
+            {/* 1 — the headline, and the evidence directly under it. */}
+            <SplitCard categories={week.categories} />
 
-        <Text style={styles.sectionTitle}>OVER A YEAR</Text>
-        <ReclaimedCard days={days} />
+            {/* 2 — the week itself, then the same week split by app. */}
+            <View style={styles.card}>
+              <View style={styles.weekHeader}>
+                <Text style={Typography.figureLG}>{formatDuration(week.total)}</Text>
+                <View style={styles.weekMeta}>
+                  <Text style={[Typography.callout, styles.muted]}>{COPY.weekTotal}</Text>
+                  {prev.total > 0 ? (
+                    <Text style={[Typography.callout, styles.muted]}>
+                      {COPY.weekDelta(
+                        formatDuration(Math.abs(week.total - prev.total)),
+                        week.total <= prev.total ? 'down' : 'up'
+                      )}
+                    </Text>
+                  ) : (
+                    <Text style={[Typography.callout, styles.muted]}>{COPY.weekNoPrev}</Text>
+                  )}
+                </View>
+              </View>
+              <WeekChart values={week.perDay} />
+            </View>
 
-        <Text style={styles.sectionTitle}>TOTAL — ALL APPS</Text>
-        <View style={styles.card}>
-          <Text style={[Typography.largeTitle, styles.total]}>
-            {formatDuration(week.total)}
-          </Text>
-          <WeekChart values={week.perDay} />
-        </View>
-
-        {activePlatforms.length > 0 && (
-          <>
-            <Text style={styles.sectionTitle}>BY APP</Text>
             {activePlatforms.map(([pid, ms]) => (
               <PlatformCard
                 key={pid}
@@ -522,30 +646,43 @@ export default function Insights() {
                 weekTotal={week.total}
               />
             ))}
+
+            {/* 3 — when, if there is anything honest to say about when. */}
+            <RhythmCard histogram={rhythm} statedWindow={statedWindowText} />
+
+            {/* 4 — over time. Renders nothing at all until two full weeks. */}
+            <ReclaimedCard days={days} />
+
+            {feedback.length > 0 && (
+              <View style={styles.card}>
+                {feedback.map((line, i) => (
+                  <Text
+                    key={i}
+                    style={[Typography.body, styles.feedbackLine, i > 0 && { marginTop: 10 }]}
+                  >
+                    {line}
+                  </Text>
+                ))}
+              </View>
+            )}
+
+            {/* Anything not ready yet, as one compact strip rather than as
+                several empty cards competing with the ones that do have data. */}
+            {pending.length > 0 && (
+              <View style={styles.card}>
+                <Text style={[Typography.caption, styles.stillComing]}>{COPY.stillComing}</Text>
+                <View style={styles.unlockList}>
+                  {pending.map((u) => (
+                    <UnlockRow key={u.label} label={u.label} status={u.status} ready={false} />
+                  ))}
+                </View>
+              </View>
+            )}
           </>
         )}
 
-        <Text style={styles.sectionTitle}>SUMMARY</Text>
-        <View style={styles.card}>
-          {feedback.map((line, i) => (
-            <Text
-              key={i}
-              style={[Typography.body, styles.feedbackLine, i > 0 && { marginTop: 10 }]}
-            >
-              {line}
-            </Text>
-          ))}
-        </View>
-
-        {prev.total > 0 && (
-          <>
-            <Text style={styles.sectionTitle}>LAST WEEK</Text>
-            <View style={styles.card}>
-              <Text style={[Typography.title, styles.total]}>{formatDuration(prev.total)}</Text>
-              <WeekChart values={prev.perDay} />
-            </View>
-          </>
-        )}
+        {/* 5 — how any of this was worked out. Collapsed; always available. */}
+        <MethodCard />
       </ScrollView>
     </View>
   );
@@ -600,11 +737,48 @@ const styles = StyleSheet.create({
   subtitle: {
     marginTop: 1,
   },
-  sectionTitle: {
-    ...Typography.caption,
-    marginBottom: 8,
-    marginLeft: 16,
-    marginTop: 8,
+  unlockList: {
+    gap: 12,
+    marginTop: 4,
+  },
+  unlockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  unlockReady: {
+    color: Colors.primary,
+  },
+  unlockPending: {
+    color: Colors.textTertiary,
+  },
+  stillComing: {
+    marginBottom: 12,
+  },
+  methodHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  methodBody: {
+    marginTop: 14,
+    gap: 12,
+  },
+  methodLine: {
+    lineHeight: 19,
+  },
+  weekHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 14,
+  },
+  weekMeta: {
+    alignItems: 'flex-end',
+    gap: 2,
   },
   card: {
     backgroundColor: Colors.surface,
@@ -634,10 +808,6 @@ const styles = StyleSheet.create({
   rhythmHeadline: {
     lineHeight: 28,
     marginBottom: 6,
-  },
-  total: {
-    textAlign: 'center',
-    marginBottom: 12,
   },
   platHeader: {
     flexDirection: 'row',

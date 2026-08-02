@@ -14,8 +14,10 @@ import { dayKey } from '@/utils/stats';
 import { PRESETS } from '@/constants/presets';
 import {
   AmountAnswer,
+  CostAnswer,
   GoalAnswer,
   isAmountAnswer,
+  isCostAnswer,
   isGoalAnswer,
   isKeepAnswer,
   isWhenAnswer,
@@ -42,7 +44,8 @@ const MASTER_DEFAULTS: MasterSettings = {
 
 type SettingsState = {
   onboarded: boolean;
-  goals: string[];
+  /** Q1 — the consequences they've noticed. Adjusts the mode; see `recommendMode`. */
+  costs: CostAnswer[];
   /**
    * The rest of the onboarding survey. Every field is optional: an install that
    * onboarded before these questions existed hydrates with them undefined, and
@@ -67,12 +70,15 @@ type SettingsState = {
   _hasHydrated: boolean;
   setHasHydrated: (value: boolean) => void;
   setOnboarded: (value: boolean) => void;
-  setGoals: (goals: string[]) => void;
+  setCosts: (values: CostAnswer[]) => void;
   setTimeEstimate: (value: AmountAnswer) => void;
   setTimeOfDay: (values: WhenAnswer[]) => void;
   setKeeps: (values: KeepAnswer[]) => void;
   setMonthGoal: (value: GoalAnswer) => void;
-  applyPreset: (presetId: string) => void;
+  applyPreset: (
+    presetId: string,
+    options?: { feedLimit?: number; hideCounts?: boolean }
+  ) => void;
   setToggle: (platform: PlatformId, key: string, value: boolean) => void;
   setMetricToggle: (platform: PlatformId, key: string, value: MetricVisibility) => void;
   setPlatformEnabled: (platform: PlatformId, value: boolean) => void;
@@ -102,7 +108,7 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       onboarded: false,
-      goals: [],
+      costs: [],
       platformEnabled: initial.enabled,
       platformSettings: initial.settings,
       feedLimits: initial.limits,
@@ -111,34 +117,65 @@ export const useSettingsStore = create<SettingsState>()(
       _hasHydrated: false,
       setHasHydrated: (value) => set({ _hasHydrated: value }),
       setOnboarded: (value) => set({ onboarded: value }),
-      setGoals: (goals) => set({ goals }),
+      setCosts: (values) => set({ costs: values }),
       setTimeEstimate: (value) => set({ timeEstimate: value }),
       setTimeOfDay: (values) => set({ timeOfDay: values }),
       setKeeps: (values) => set({ keeps: values }),
       setMonthGoal: (value) => set({ monthGoal: value }),
 
-      applyPreset: (presetId) =>
+      /**
+       * Apply a mode as a COMPLETE bundle: reset each enabled platform to its
+       * defaults, then write the mode's keys over that.
+       *
+       * The reset is the whole point. This used to merge, so keys the previous
+       * mode had set and the new one didn't mention simply survived — going from
+       * the strictest mode to the loosest left search hidden and recommendations
+       * blocked, and no mode description could be made true. A mode is a
+       * destination, not a layer.
+       *
+       * Master settings are deliberately NOT touched. They are a user-level
+       * "everywhere" choice made in Settings; a mode has no business clearing a
+       * global the user set on purpose. Modes work per-platform only.
+       */
+      applyPreset: (presetId, options) =>
         set((state) => {
           const preset = PRESETS.find((p) => p.id === presetId);
           if (!preset) return {};
+          const limit = clampLimit(options?.feedLimit ?? preset.feedLimit);
           const newSettings = { ...state.platformSettings };
           const newLimits = { ...state.feedLimits };
+          const newEnabledAt = { ...state.toggleEnabledAt };
+          const today = dayKey();
           for (const id of PLATFORM_ORDER) {
             if (!state.platformEnabled[id]) continue;
-            const merged = { ...newSettings[id] };
+            const next = defaultSettingsFor(id);
             for (const [key, val] of Object.entries(preset.settings)) {
-              if (key in merged) merged[key] = val;
+              if (key in next) next[key] = val;
             }
-            newSettings[id] = merged;
-            if (preset.feedLimit) newLimits[id] = preset.feedLimit;
+            // Q1's "I feel worse after" — every count behind its control, but
+            // the control itself still works. 'hidden-both' would take away the
+            // like button, which nobody asked for.
+            if (options?.hideCounts) {
+              for (const key of Object.keys(next)) {
+                if (METRIC_FEATURE_KEYS.has(key)) next[key] = 'hidden-number';
+              }
+            }
+            newSettings[id] = next;
+            newLimits[id] = limit;
+            // Stamp what this turned on so the "since you enabled this" savings
+            // lines have a start date here too, preserving any earlier stamp so
+            // re-applying a mode doesn't reset the clock on an unchanged key.
+            const stamps: Record<string, string> = {};
+            for (const [key, val] of Object.entries(next)) {
+              const on = METRIC_FEATURE_KEYS.has(key) ? val !== 'visible' : val === true;
+              if (on) stamps[key] = newEnabledAt[id]?.[key] ?? today;
+            }
+            newEnabledAt[id] = stamps;
           }
           return {
             platformSettings: newSettings,
             feedLimits: newLimits,
-            masterSettings: {
-              ...state.masterSettings,
-              ...(preset.masterOverrides ?? {}),
-            },
+            toggleEnabledAt: newEnabledAt,
           };
         }),
 
@@ -200,7 +237,7 @@ export const useSettingsStore = create<SettingsState>()(
       // Persist only user data, not the hydration flag or actions.
       partialize: (state) => ({
         onboarded: state.onboarded,
-        goals: state.goals,
+        costs: state.costs,
         timeEstimate: state.timeEstimate,
         timeOfDay: state.timeOfDay,
         keeps: state.keeps,
@@ -254,7 +291,10 @@ export const useSettingsStore = create<SettingsState>()(
         return {
           ...current,
           onboarded: saved.onboarded ?? false,
-          goals: saved.goals ?? [],
+          // Q1's ids changed when the question did, so anything an older build
+          // stored under the previous option set is dropped here rather than
+          // carried forward as a value nothing understands.
+          costs: Array.isArray(saved.costs) ? saved.costs.filter(isCostAnswer) : [],
           timeEstimate: isAmountAnswer(saved.timeEstimate) ? saved.timeEstimate : undefined,
           timeOfDay: Array.isArray(saved.timeOfDay)
             ? saved.timeOfDay.filter(isWhenAnswer)

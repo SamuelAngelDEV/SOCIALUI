@@ -25,6 +25,13 @@ export type HourChartProps = {
   color?: string;
   /** Bars outside the highlighted window. Ignored when nothing is highlighted. */
   mutedColor?: string;
+  /**
+   * Hour labels under the bars. Off where a sentence above already names the
+   * window ("…happened after 10pm"), which is the case this was built for: the
+   * finding is the product and this is only evidence for it, so a full labelled
+   * axis competes with the sentence instead of supporting it.
+   */
+  showAxis?: boolean;
 };
 
 /**
@@ -39,6 +46,7 @@ export function HourChart({
   height = 84,
   color = Colors.primary,
   mutedColor = Colors.primarySubtle,
+  showAxis = true,
 }: HourChartProps) {
   const [width, setWidth] = useState(0);
 
@@ -55,7 +63,7 @@ export function HourChart({
     }
   }
 
-  const plotHeight = Math.max(height - AXIS_HEIGHT, 1);
+  const plotHeight = Math.max(height - (showAxis ? AXIS_HEIGHT : 0), 1);
   const max = Math.max(...values.slice(0, HOURS), 1);
   const slot = width / HOURS;
   const barWidth = Math.max(slot - 2, 1);
@@ -97,7 +105,7 @@ export function HourChart({
             );
           })}
 
-          {TICKS.map((tick) => (
+          {showAxis && TICKS.map((tick) => (
             <SvgText
               key={tick.label}
               x={tick.hour * slot + slot / 2}

@@ -16,8 +16,14 @@ import { Strings } from './strings';
  */
 const COPY = Strings.onboarding;
 
-/** Q1 — the hook. */
-export type GoalsAnswer = 'scrolling' | 'reels' | 'counts' | 'time' | 'habit';
+/**
+ * Q1 — the consequence the user has noticed. Multi-select, `time` exclusive.
+ *
+ * This is a routing answer, not a self-assessment: `sleep`/`focus` argue for a
+ * tighter feed cap, and `mood` is the one that argues for taking the counts
+ * off. Q4 still decides which mode; this only adjusts it. See `recommendMode`.
+ */
+export type CostAnswer = 'sleep' | 'focus' | 'presence' | 'mood' | 'time';
 /** Q2 — the user's own estimate of a day. */
 export type AmountAnswer = 'under1' | 'one2' | 'two4' | 'over4' | 'unsure';
 /** Q3 — when it gets away from them. */
@@ -29,12 +35,12 @@ export type GoalAnswer = 'half' | 'hour' | 'night' | 'stop';
 
 export type Option<Id extends string> = { id: Id; label: string };
 
-export const GOALS_OPTIONS: readonly Option<GoalsAnswer>[] = [
-  { id: 'scrolling', label: COPY.goals.scrolling },
-  { id: 'reels', label: COPY.goals.reels },
-  { id: 'counts', label: COPY.goals.counts },
-  { id: 'time', label: COPY.goals.time },
-  { id: 'habit', label: COPY.goals.habit },
+export const COST_OPTIONS: readonly Option<CostAnswer>[] = [
+  { id: 'sleep', label: COPY.cost.sleep },
+  { id: 'focus', label: COPY.cost.focus },
+  { id: 'presence', label: COPY.cost.presence },
+  { id: 'mood', label: COPY.cost.mood },
+  { id: 'time', label: COPY.cost.time },
 ];
 
 export const AMOUNT_OPTIONS: readonly Option<AmountAnswer>[] = [
@@ -132,11 +138,14 @@ export const AMOUNT_PHRASE: Record<AmountAnswer, string> = {
 const idSet = <Id extends string>(options: readonly Option<Id>[]) =>
   new Set<string>(options.map((o) => o.id));
 
+const COST_IDS = idSet(COST_OPTIONS);
 const AMOUNT_IDS = idSet(AMOUNT_OPTIONS);
 const WHEN_IDS = idSet(WHEN_OPTIONS);
 const KEEP_IDS = idSet(KEEP_OPTIONS);
 const GOAL_IDS = idSet(GOAL_OPTIONS);
 
+export const isCostAnswer = (v: unknown): v is CostAnswer =>
+  typeof v === 'string' && COST_IDS.has(v);
 export const isAmountAnswer = (v: unknown): v is AmountAnswer =>
   typeof v === 'string' && AMOUNT_IDS.has(v);
 export const isWhenAnswer = (v: unknown): v is WhenAnswer =>
