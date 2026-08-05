@@ -239,6 +239,8 @@ type SettingsState = {
   cancelPending: (key: string) => void;
   /** Apply anything that has come due. Cheap; safe to call often. */
   tickCommitments: () => void;
+  /** Back to a fresh install. Only reachable from the dev-only Settings row. */
+  resetAll: () => void;
   resetPlatform: (platform: PlatformId) => void;
 };
 
@@ -424,6 +426,45 @@ export const useSettingsStore = create<SettingsState>()(
         }),
 
       setTheme: (value) => set(() => ({ theme: value })),
+
+      /**
+       * Back to a fresh install, for testing onboarding repeatedly.
+       *
+       * Rebuilds the per-platform records from `allDefaults()` rather than
+       * reusing the module-level `initial`, which the running app has been
+       * mutating copies of; and clears the persisted blob, or the next write
+       * would put the old state straight back.
+       *
+       * Every field is listed explicitly. A spread of defaults would silently
+       * miss any field added later, which is the failure mode that makes a
+       * reset button worse than no reset button: it would look like a fresh
+       * install while carrying something over.
+       */
+      resetAll: () => {
+        useSettingsStore.persist.clearStorage();
+        const fresh = allDefaults();
+        set({
+          onboarded: false,
+          costs: [],
+          timeEstimate: undefined,
+          timeEstimateMsPerDay: undefined,
+          age: undefined,
+          timeOfDay: undefined,
+          keeps: undefined,
+          monthGoal: undefined,
+          platformEnabled: fresh.enabled,
+          platformInUse: fresh.inUse,
+          platformSettings: fresh.settings,
+          feedLimits: fresh.limits,
+          masterSettings: { ...MASTER_DEFAULTS },
+          quietHours: { ...QUIET_HOURS_DEFAULT },
+          disableDelayHours: INITIAL_DELAY_HOURS,
+          pendingChanges: [],
+          pendingDelayHours: undefined,
+          theme: DEFAULT_THEME,
+          toggleEnabledAt: {},
+        });
+      },
 
       cancelPending: (key) =>
         set((state) => ({

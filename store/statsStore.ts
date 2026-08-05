@@ -35,6 +35,8 @@ type StatsState = {
   days: Record<string, DayStats>;
   /** Week (Monday key) whose report banner was already opened. */
   weeklyShownFor: string | null;
+  /** Wipe everything. Only reachable from the dev-only Settings row. */
+  resetAll: () => void;
   /**
    * `endedAt` is when the segment closed (defaults to now). The segment is the
    * span [endedAt - ms, endedAt), and it is split across the local hour — and
@@ -159,6 +161,17 @@ export const useStatsStore = create<StatsState>()(
       },
 
       markWeeklyShown: (week) => set({ weeklyShownFor: week }),
+
+      /**
+       * Wipe all recorded time. Dev-only, for testing a first run.
+       *
+       * Clears the persisted copy as well as the in-memory one, or the next
+       * write would re-persist whatever was still in state.
+       */
+      resetAll: () => {
+        useStatsStore.persist.clearStorage();
+        set({ days: {}, weeklyShownFor: null });
+      },
     }),
     {
       name: 'quiet-stats-v1',

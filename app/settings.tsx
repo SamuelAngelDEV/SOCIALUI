@@ -8,6 +8,7 @@ import { Radii, Spacing } from '@/constants/spacing';
 import { Strings } from '@/constants/strings';
 import { PLATFORM_LIST } from '@/constants/platforms';
 import { THEMES, themeById } from '@/constants/themes';
+import { useStatsStore } from '@/store/statsStore';
 import {
   MasterSettings,
   masterPendingKey,
@@ -52,6 +53,8 @@ export default function Settings() {
   const platformInUse = useSettingsStore((s) => s.platformInUse);
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
+  const resetSettings = useSettingsStore((s) => s.resetAll);
+  const resetStats = useStatsStore((s) => s.resetAll);
 
   const delayLabel = (h: number) =>
     h === 0 ? Strings.commitment.immediate : Strings.commitment.hours(h);
@@ -209,6 +212,27 @@ export default function Settings() {
               onPress={() => router.push('/doctor')}
             />
           </SettingsGroup>
+
+          {/*
+            Dev only. `__DEV__` is false in any release build, so this cannot
+            ship: a one-tap "erase everything" in a production app is a support
+            incident waiting to happen. It exists because testing onboarding
+            otherwise means reinstalling Expo Go every time.
+          */}
+          {__DEV__ && (
+            <SettingsGroup title="Developer" footer="Debug builds only.">
+              <SettingsRow
+                label="Reset all data"
+                note="Wipes settings and history, then reopens onboarding."
+                accessory="chevron"
+                onPress={() => {
+                  resetStats();
+                  resetSettings();
+                  router.replace('/onboarding');
+                }}
+              />
+            </SettingsGroup>
+          )}
         </ScrollView>
       ) : (
         <View style={styles.loading}>
