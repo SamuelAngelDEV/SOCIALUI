@@ -169,7 +169,7 @@ export function recommendMode(
     );
   }
   if (hideCounts) {
-    notes.push('Like and follower counts are hidden, since you feel worse after');
+    notes.push("Like and follower counts are hidden — they're what a comparison runs on");
   }
 
   return {

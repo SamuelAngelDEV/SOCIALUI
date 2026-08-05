@@ -1,32 +1,52 @@
-import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronDown, ChevronLeft, ChevronUp } from 'lucide-react-native';
+import { ChevronLeft } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
+import {
+  ALGORITHMIC_COLOR,
+  categoryColor,
+  categoryTextColor,
+  INTENTIONAL_COLOR,
+  orderedCategories,
+} from '@/constants/activityColors';
+import { SectionLabel } from '@/components/ui';
 import { Typography } from '@/constants/typography';
 import { PLATFORMS, PlatformId } from '@/constants/platforms';
 import { PlatformLogo } from '@/components/PlatformLogo';
 import { CategoryBars, HourChart, SplitBar, WeekChart } from '@/components/charts';
 import { useStatsStore, DayStats } from '@/store/statsStore';
-import { useSettingsStore } from '@/store/settingsStore';
+import { PENDING_QUIET_HOURS, useSettingsStore } from '@/store/settingsStore';
+import { formatRemaining, pendingFor, remainingMs } from '@/utils/commitment';
 import { AMOUNT_BANDS, AMOUNT_PHRASE, AmountAnswer, GoalAnswer, statedWindows } from '@/constants/survey';
 import { Strings } from '@/constants/strings';
-import { computeReclaimed, formatSpan, MIN_FULL_WEEKS } from '@/utils/reclaimed';
+import {
+  computeReclaimed,
+  EstimateProjection,
+  formatLongSpan,
+  formatSpan,
+  HORIZON_YEARS,
+  MIN_FULL_WEEKS,
+  msPerWeekToDaysPerYear,
+  projectFromEstimate,
+} from '@/utils/reclaimed';
+import { suggestWindow } from '@/utils/schedule';
 import {
   categoriesOfKind,
   Category,
+  categoryLabel,
+  CATEGORY_KIND,
   CATEGORY_LABELS,
   describeRhythm,
   findRhythmWindow,
   formatDuration,
   formatHour,
+  formatHourRange,
   HourHistogram,
   hourHistogram,
   KIND_LABELS,
   lastNDayKeys,
   RHYTHM_MIN_DAYS,
-  RHYTHM_MIN_MS,
   RHYTHM_WINDOW_DAYS,
   splitByKind,
   weekDays,
@@ -34,9 +54,23 @@ import {
 } from '@/utils/stats';
 
 const COPY = Strings.insights;
+const QUIET = Strings.quietHours;
 
-/** One threshold's state, for the learning card and the still-counting strip. */
-type UnlockState = { label: string; ready: boolean; status: string };
+/**
+ * One threshold's state, for the learning card and the still-counting strip.
+ *
+ * `progress` is 0..1 and is what turns "2 more days" from a promise into
+ * something the user can see moving. It is only set where the distance to the
+ * threshold is actually known — the trend reader knows it has 1 of 2 full
+ * weeks, but "no pattern yet" has no denominator, and drawing a half-full bar
+ * there would be inventing progress toward something that may never arrive.
+ */
+type UnlockState = {
+  label: string;
+  ready: boolean;
+  status: string;
+  progress?: number;
+};
 
 /** "Tuesday" for a day inside the last week, otherwise a short date. */
 function formatDayLabel(key: string): string {
@@ -49,22 +83,16 @@ function formatDayLabel(key: string): string {
     : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-/** Gold for what the ranking model chose, green for what the user chose. */
-const ALGORITHMIC_COLOR = Colors.accentGold;
-const INTENTIONAL_COLOR = Colors.primary;
-
-/** Category bars carry the same colour language as the headline split. */
-const CATEGORY_COLORS: Record<Category, string> = {
-  feed: ALGORITHMIC_COLOR,
-  reels: ALGORITHMIC_COLOR,
-  messages: INTENTIONAL_COLOR,
-  video: INTENTIONAL_COLOR,
-  other: Colors.textTertiary,
-};
 
 type WeekAgg = {
   total: number;
   perDay: number[]; // Mon..Sun, ms
+  /**
+   * Mon..Sun, split by kind. The weekly chart stacks these rather than drawing
+   * one flat total — a heavy feed day and a heavy messaging day are the thing
+   * this screen exists to tell apart, so the chart has to show it.
+   */
+  perDayKind: { algorithmic: number; intentional: number }[];
   platforms: Partial<Record<PlatformId, number>>;
   categories: Partial<Record<Category, number>>;
   /** Activity split per platform — drives the per-app sections. */
@@ -75,11 +103,19 @@ type WeekAgg = {
 function aggregateWeek(days: Record<string, DayStats>, monKey: string): WeekAgg {
   const keys = weekDays(monKey);
   const agg: WeekAgg = {
-    total: 0, perDay: [], platforms: {}, categories: {}, byPlatform: {}, daysWithData: 0,
+    total: 0, perDay: [], perDayKind: [], platforms: {}, categories: {}, byPlatform: {}, daysWithData: 0,
   };
   for (const key of keys) {
     const day = days[key];
     agg.perDay.push(day?.total ?? 0);
+    // Split each day as it is read. `splitByKind` already excludes `other`
+    // from the ratio, and it is excluded from the column too — an unclassified
+    // segment would be a third colour carrying no part of the argument.
+    const dayKind = day ? splitByKind(day.categories) : null;
+    agg.perDayKind.push({
+      algorithmic: dayKind?.algorithmic ?? 0,
+      intentional: dayKind?.intentional ?? 0,
+    });
     if (!day) continue;
     agg.daysWithData++;
     agg.total += day.total;
@@ -98,6 +134,28 @@ function aggregateWeek(days: Record<string, DayStats>, monKey: string): WeekAgg 
     }
   }
   return agg;
+}
+
+/**
+ * Category rollup across an arbitrary set of day keys.
+ *
+ * `aggregateWeek` is keyed to a calendar week, which is short mid-week. Anything
+ * projected out to a year needs a settled window instead, so the horizon line
+ * reads the rolling seven days through this.
+ */
+function rollupCategories(
+  days: Record<string, DayStats>,
+  keys: string[]
+): Partial<Record<Category, number>> {
+  const out: Partial<Record<Category, number>> = {};
+  for (const key of keys) {
+    const day = days[key];
+    if (!day) continue;
+    for (const [c, ms] of Object.entries(day.categories)) {
+      out[c as Category] = (out[c as Category] ?? 0) + (ms ?? 0);
+    }
+  }
+  return out;
 }
 
 /** Plain-language weekly feedback. Observational, never judgmental. */
@@ -216,37 +274,77 @@ function goalProgressLine(
  * `LearningCard`, which states it once for the whole screen rather than leaving a
  * one-sentence stub here.
  */
-function SplitCard({ categories }: { categories: Partial<Record<Category, number>> }) {
+function SplitCard({
+  categories,
+  algorithmicMsPerWeek,
+}: {
+  categories: Partial<Record<Category, number>>;
+  /** Rolling-7-day algorithmic time, for the year projection. 0 hides that line. */
+  algorithmicMsPerWeek: number;
+}) {
   const split = splitByKind(categories);
   if (split.algorithmicShare === null) return null;
 
   const algoPct = Math.round(split.algorithmicShare * 100);
+  // Ordered algorithmic → intentional, so the bar reads as two families.
+  const rows = orderedCategories(categories).filter(
+    (r) => CATEGORY_KIND[r.cat] !== 'unclassified'
+  );
 
   return (
     <View style={styles.card}>
-      <Text style={[Typography.largeTitle, styles.splitHeadline]}>
-        {algoPct}% {COPY.splitHeadline}
-      </Text>
-      <Text style={[Typography.callout, styles.splitSub]}>{COPY.splitBody}</Text>
+      <SectionLabel>{COPY.splitEyebrow}</SectionLabel>
 
+      {/* The unit is set small and inline rather than at figure size. "62" is
+          the number being reported; "% algorithmic" is what it is a number OF,
+          and setting them at the same weight makes the reader parse a label as
+          though it were data. */}
+      <View style={styles.splitFigureRow}>
+        <Text style={Typography.figureXL}>{algoPct}</Text>
+        <Text style={[Typography.title, styles.splitUnit]}>{COPY.splitUnit}</Text>
+      </View>
+      <Text style={[Typography.body, styles.splitBody]}>{COPY.splitBody}</Text>
+
+      {/* Segmented by category, grouped by kind. The two-tone version said
+          "62% / 38%" twice — once as the number above and once as the bar —
+          and nothing else. This says which surfaces made up each side. */}
       <SplitBar
-        segments={[
-          {
-            key: 'algorithmic',
-            label: KIND_LABELS.algorithmic,
-            value: split.algorithmic,
-            valueLabel: formatDuration(split.algorithmic),
-            color: ALGORITHMIC_COLOR,
-          },
-          {
-            key: 'intentional',
-            label: KIND_LABELS.intentional,
-            value: split.intentional,
-            valueLabel: formatDuration(split.intentional),
-            color: INTENTIONAL_COLOR,
-          },
-        ]}
+        showLegend={false}
+        segments={rows.map((r) => ({
+          key: r.cat,
+          label: CATEGORY_LABELS[r.cat],
+          value: r.ms,
+          valueLabel: formatDuration(r.ms),
+          color: categoryColor(r.cat),
+        }))}
       />
+
+      <View style={styles.splitLegend}>
+        {rows.map((r) => (
+          <View key={r.cat} style={styles.splitLegendRow}>
+            <View style={[styles.splitDot, { backgroundColor: categoryColor(r.cat) }]} />
+            <Text style={[Typography.body, { color: categoryTextColor(r.cat) }]}>
+              {CATEGORY_LABELS[r.cat]}
+            </Text>
+            {/* The kind, in words. Colour groups the families; this states the
+                grouping, so the split survives greyscale and CVD. */}
+            <Text style={[Typography.callout, styles.splitKind]}>
+              {KIND_LABELS[CATEGORY_KIND[r.cat]].toLowerCase()}
+            </Text>
+            <Text style={[Typography.body, styles.splitLegendValue]}>
+              {formatDuration(r.ms)}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Measured, so it earns the full-weight treatment — unlike the estimate
+          projection on the first-open card. */}
+      {algorithmicMsPerWeek > 0 && (
+        <Text style={[Typography.body, styles.splitHorizon]}>
+          {COPY.splitHorizon(formatSpan(msPerWeekToDaysPerYear(algorithmicMsPerWeek)))}
+        </Text>
+      )}
 
       {split.unclassified > 0 && (
         <Text style={[Typography.callout, styles.splitFootnote]}>
@@ -275,10 +373,27 @@ function RhythmCard({
   statedWindow: string | null;
 }) {
   const finding = findRhythmWindow(histogram);
+  const quietHours = useSettingsStore((s) => s.quietHours);
+  const setQuietHours = useSettingsStore((s) => s.setQuietHours);
+  const timeOfDay = useSettingsStore((s) => s.timeOfDay);
+  const pendingChanges = useSettingsStore((s) => s.pendingChanges);
+  const cancelPending = useSettingsStore((s) => s.cancelPending);
+  const quietPending = pendingFor(pendingChanges, PENDING_QUIET_HOURS);
+
   if (!finding && !statedWindow) return null;
+
+  // Offer the window Rhythm actually measured. `suggestWindow` prefers the
+  // finding over the onboarding claim; with neither it returns null and no
+  // action is offered, because there would be nothing to recommend.
+  const suggested = suggestWindow(
+    finding ? { startHour: finding.startHour, lengthHours: finding.lengthHours } : null,
+    statedWindows(timeOfDay)
+  );
+  const activeWindow = formatHourRange(quietHours.startHour, quietHours.endHour);
 
   return (
     <View style={styles.card}>
+      <SectionLabel>{COPY.rhythmEyebrow}</SectionLabel>
       {finding ? (
         <>
           <Text style={[Typography.title, styles.rhythmHeadline]}>{describeRhythm(finding)}</Text>
@@ -300,22 +415,90 @@ function RhythmCard({
         height={48}
         showAxis={false}
       />
+
+      {/*
+        The action, and the reason this card stops being purely observational.
+        Note what the copy does NOT do: it never says the window will save
+        anything. It offers to close a window the user's own data named, and
+        says plainly that the way through is still open.
+      */}
+      {quietHours.enabled ? (
+        <View style={styles.quietActive}>
+          <Text style={[Typography.body, styles.quietActiveText]}>
+            {/* Once a disable is scheduled, saying "quiet hours are on" and
+                offering "turn off" again would be describing a state the user
+                has already left. Report the wait instead, and make the way back
+                the action — the same pair Settings shows. */}
+            {quietPending
+              ? Strings.commitment.pending(
+                  formatRemaining(remainingMs(quietPending, Date.now()))
+                )
+              : QUIET.ctaActive(activeWindow)}
+          </Text>
+          <Pressable
+            onPress={() =>
+              quietPending
+                ? cancelPending(PENDING_QUIET_HOURS)
+                : setQuietHours({ enabled: false })
+            }
+            hitSlop={8}
+            accessibilityRole="button"
+          >
+            <Text style={[Typography.callout, styles.quietTurnOff]}>
+              {quietPending ? Strings.commitment.keepOn : QUIET.ctaTurnOff}
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        suggested && (
+          <View style={styles.quietCta}>
+            <Text style={[Typography.headline, styles.quietCtaTitle]}>{QUIET.ctaTitle}</Text>
+            <Text style={[Typography.callout, styles.quietCtaBody]}>
+              {QUIET.ctaBody(formatHourRange(suggested.startHour, suggested.endHour))}
+            </Text>
+            <Pressable
+              style={styles.quietCtaButton}
+              onPress={() =>
+                setQuietHours({
+                  enabled: true,
+                  startHour: suggested.startHour,
+                  endHour: suggested.endHour,
+                  source: finding ? 'rhythm' : 'manual',
+                })
+              }
+              accessibilityRole="button"
+            >
+              <Text style={styles.quietCtaButtonText}>
+                {QUIET.ctaButton(formatHourRange(suggested.startHour, suggested.endHour))}
+              </Text>
+            </Pressable>
+          </View>
+        )
+      )}
     </View>
   );
 }
 
 /** One "name — status" line, shared by the learning card and the still-counting strip. */
-function UnlockRow({ label, status, ready }: {
-  label: string;
-  status: string;
-  ready: boolean;
-}) {
+function UnlockRow({ label, status, ready, progress }: UnlockState) {
   return (
-    <View style={styles.unlockRow}>
-      <Text style={[Typography.body, !ready && styles.muted]}>{label}</Text>
-      <Text style={[Typography.callout, ready ? styles.unlockReady : styles.unlockPending]}>
-        {status}
-      </Text>
+    <View style={styles.unlockBlock}>
+      <View style={styles.unlockRow}>
+        <Text style={[Typography.body, !ready && styles.muted]}>{label}</Text>
+        <Text style={[Typography.callout, ready ? styles.unlockReady : styles.unlockPending]}>
+          {status}
+        </Text>
+      </View>
+      {!ready && progress !== undefined && (
+        <View style={styles.unlockTrack}>
+          <View
+            style={[
+              styles.unlockFill,
+              { width: `${Math.max(3, Math.min(1, progress) * 100)}%` },
+            ]}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -331,18 +514,65 @@ function UnlockRow({ label, status, ready }: {
  * fuller and more honest — it answers "how does it decide things" before it has
  * decided anything, which is the only time that answer is free of spin.
  */
-function LearningCard({ since, rows }: { since: string | null; rows: UnlockState[] }) {
+function LearningCard({
+  since,
+  rows,
+  estimate,
+}: {
+  since: string | null;
+  rows: UnlockState[];
+  /** Onboarding Q2 projected out. `null` when they answered "unsure". */
+  estimate: { projection: EstimateProjection; phrase: string } | null;
+}) {
   return (
     <View style={styles.card}>
+      {/*
+        THE GUESS, AND WHY IT LOOKS LIKE THIS.
+
+        On day one there is nothing measured, so the only honest number available
+        is the one the user gave us in onboarding. It is rendered deliberately
+        quieter than ReclaimedCard's figureXL — muted colour, smaller figure, its
+        own rule above and an eyebrow naming it as theirs BEFORE the number is
+        read. That contrast is the honesty guard, not styling: a guess set in the
+        same type as a measurement is a guess laundered into a fact.
+      */}
+      {estimate && (
+        <View style={styles.estimateBlock}>
+          <Text style={[Typography.caption, styles.estimateEyebrow]}>{COPY.estimateEyebrow}</Text>
+          <Text style={[Typography.figureLG, styles.estimateFigure]}>
+            {COPY.estimateFigure(
+              formatSpan(estimate.projection.daysPerYear),
+              estimate.projection.atLeast
+            )}
+          </Text>
+          <Text style={[Typography.callout, styles.estimateSub]}>{COPY.estimateSub}</Text>
+          <Text style={[Typography.body, styles.estimateLine]}>
+            {COPY.estimateSaid(estimate.phrase)}{' '}
+            {COPY.estimateHorizon(
+              HORIZON_YEARS,
+              formatLongSpan(estimate.projection.daysPerHorizon)
+            )}
+          </Text>
+          <Text style={[Typography.callout, styles.splitFootnote]}>
+            {COPY.estimateDisclaimer}
+          </Text>
+        </View>
+      )}
+
       <Text style={[Typography.title, styles.rhythmHeadline]}>
         {since ? COPY.learningTitle(since) : COPY.learningFirstDay}
       </Text>
       {since && (
         <Text style={[Typography.callout, styles.splitSub]}>{COPY.learningBody}</Text>
       )}
+
+      {/* The idea itself, so the real percentage lands in a frame they already
+          hold by the time it arrives. */}
+      <Text style={[Typography.body, styles.estimateLine]}>{COPY.splitExample}</Text>
+
       <View style={styles.unlockList}>
         {rows.map((r) => (
-          <UnlockRow key={r.label} label={r.label} status={r.status} ready={r.ready} />
+          <UnlockRow key={r.label} {...r} />
         ))}
       </View>
       <Text style={[Typography.callout, styles.splitFootnote]}>{COPY.learningFooter}</Text>
@@ -350,43 +580,14 @@ function LearningCard({ since, rows }: { since: string | null; rows: UnlockState
   );
 }
 
-/** The collapsed methodology note. One place that states every threshold. */
-function MethodCard() {
-  const [open, setOpen] = useState(false);
-  return (
-    <View style={styles.card}>
-      <Pressable
-        style={styles.methodHeader}
-        onPress={() => setOpen((v) => !v)}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-      >
-        <Text style={Typography.headline}>{COPY.methodTitle}</Text>
-        {open ? (
-          <ChevronUp size={18} color={Colors.textSecondary} />
-        ) : (
-          <ChevronDown size={18} color={Colors.textSecondary} />
-        )}
-      </Pressable>
-      {open && (
-        <View style={styles.methodBody}>
-          {[
-            COPY.methodTiming,
-            COPY.methodSplit,
-            COPY.methodRhythm(RHYTHM_MIN_DAYS, Math.round(RHYTHM_MIN_MS / 60_000)),
-            COPY.methodTrend(MIN_FULL_WEEKS),
-            COPY.methodNoCredit,
-          ].map((line) => (
-            <Text key={line} style={[Typography.callout, styles.methodLine]}>
-              {line}
-            </Text>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
+/*
+ * The "How this is worked out" card lived here and has been deleted.
+ *
+ * It was a text-only card on a screen that should be numbers and charts, and it
+ * read as a glossary nobody asked for. The thresholds it listed are better
+ * placed next to the thing they gate, where they have context: the unlock rows
+ * already say "2 more days", which is the same fact at the moment it matters.
+ */
 
 /**
  * What the current pace, or the change in it, works out to over a year.
@@ -509,10 +710,12 @@ function PlatformCard({ platform, totalMs, cats, weekTotal }: {
         emptyLabel="No activity detail recorded yet."
         rows={rows.map(([cat, ms]) => ({
           key: cat,
-          label: CATEGORY_LABELS[cat],
+          // The platform's own word for the surface — "Shorts" on YouTube,
+          // "For You" on TikTok. Same stored category either way.
+          label: categoryLabel(platform, cat),
           value: ms,
           valueLabel: formatDuration(ms),
-          color: CATEGORY_COLORS[cat],
+          color: categoryColor(cat),
         }))}
       />
     </View>
@@ -580,17 +783,39 @@ export default function Insights() {
         : rhythmDaysLeft > 0
           ? COPY.unlockDays(rhythmDaysLeft)
           : COPY.unlockWatching,
+      // Days collected is a real fraction. "No pattern yet" is not — the days
+      // are there and the data simply hasn't formed one, so no bar is drawn.
+      progress:
+        rhythmDaysLeft > 0 ? rhythm.daysWithData / RHYTHM_MIN_DAYS : undefined,
     },
     {
       label: COPY.unlockTrend,
       ready: hasTrend,
       status: hasTrend ? COPY.unlockReady : COPY.unlockWeeks(trendWeeksLeft),
+      progress:
+        reclaimed.kind === 'learning'
+          ? reclaimed.fullWeeks / MIN_FULL_WEEKS
+          : undefined,
     },
   ];
   const pending = unlocks.filter((u) => !u.ready);
 
   const firstDayKey = Object.keys(days).sort()[0];
   const countingSince = firstDayKey ? formatDayLabel(firstDayKey) : null;
+
+  // Their own Q2 answer, projected — the day-one figure. `projectFromEstimate`
+  // takes the band rather than the answer id so utils/reclaimed.ts stays free of
+  // app imports and its verification script can require the compiled module.
+  const estimateProjection = timeEstimate ? projectFromEstimate(AMOUNT_BANDS[timeEstimate]) : null;
+  const estimate =
+    estimateProjection && timeEstimate
+      ? { projection: estimateProjection, phrase: AMOUNT_PHRASE[timeEstimate] }
+      : null;
+
+  // Algorithmic time over a settled seven-day window, for the year projection.
+  const rollingAlgorithmicMs = splitByKind(
+    rollupCategories(days, lastNDayKeys(7))
+  ).algorithmic;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
@@ -610,14 +835,18 @@ export default function Insights() {
       >
         {!hasSplit ? (
           /* Nothing measured yet — one complete card instead of four stubs. */
-          <LearningCard since={countingSince} rows={unlocks} />
+          <LearningCard since={countingSince} rows={unlocks} estimate={estimate} />
         ) : (
           <>
             {/* 1 — the headline, and the evidence directly under it. */}
-            <SplitCard categories={week.categories} />
+            <SplitCard
+              categories={week.categories}
+              algorithmicMsPerWeek={rollingAlgorithmicMs}
+            />
 
             {/* 2 — the week itself, then the same week split by app. */}
             <View style={styles.card}>
+              <SectionLabel>{COPY.weekEyebrow}</SectionLabel>
               <View style={styles.weekHeader}>
                 <Text style={Typography.figureLG}>{formatDuration(week.total)}</Text>
                 <View style={styles.weekMeta}>
@@ -634,7 +863,27 @@ export default function Insights() {
                   )}
                 </View>
               </View>
-              <WeekChart values={week.perDay} />
+              <WeekChart
+                columns={week.perDayKind.map((d) => ({
+                  // Algorithmic first, so the warm block sits at the base of
+                  // every column and the eye can compare across the week.
+                  segments: [
+                    { key: 'algorithmic', value: d.algorithmic, color: ALGORITHMIC_COLOR },
+                    { key: 'intentional', value: d.intentional, color: INTENTIONAL_COLOR },
+                  ],
+                }))}
+              />
+              <View style={styles.weekLegend}>
+                {[
+                  { label: KIND_LABELS.algorithmic, color: ALGORITHMIC_COLOR },
+                  { label: KIND_LABELS.intentional, color: INTENTIONAL_COLOR },
+                ].map((l) => (
+                  <View key={l.label} style={styles.weekLegendItem}>
+                    <View style={[styles.splitDot, { backgroundColor: l.color }]} />
+                    <Text style={[Typography.callout, styles.muted]}>{l.label}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
 
             {activePlatforms.map(([pid, ms]) => (
@@ -673,7 +922,7 @@ export default function Insights() {
                 <Text style={[Typography.caption, styles.stillComing]}>{COPY.stillComing}</Text>
                 <View style={styles.unlockList}>
                   {pending.map((u) => (
-                    <UnlockRow key={u.label} label={u.label} status={u.status} ready={false} />
+                    <UnlockRow key={u.label} {...u} />
                   ))}
                 </View>
               </View>
@@ -681,8 +930,6 @@ export default function Insights() {
           </>
         )}
 
-        {/* 5 — how any of this was worked out. Collapsed; always available. */}
-        <MethodCard />
       </ScrollView>
     </View>
   );
@@ -722,7 +969,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: 'transparent',
     paddingHorizontal: 16,
   },
   header: {
@@ -738,14 +985,28 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   unlockList: {
-    gap: 12,
+    gap: 14,
     marginTop: 4,
+  },
+  unlockBlock: {
+    gap: 8,
   },
   unlockRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  unlockTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.groupedBackground,
+    overflow: 'hidden',
+  },
+  unlockFill: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.primaryLine,
   },
   unlockReady: {
     color: Colors.primary,
@@ -792,9 +1053,85 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     lineHeight: 21,
   },
+  splitFigureRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+  },
+  splitUnit: {
+    color: Colors.textSecondary,
+  },
+  splitBody: {
+    lineHeight: 22,
+    marginTop: 10,
+    marginBottom: 18,
+    color: Colors.textSecondary,
+  },
+  splitLegend: {
+    marginTop: 16,
+    gap: 2,
+  },
+  splitLegendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 5,
+  },
+  splitDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  weekLegend: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 14,
+  },
+  weekLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  splitKind: {
+    flex: 1,
+    color: Colors.textTertiary,
+  },
+  splitLegendValue: {
+    fontVariant: ['tabular-nums'],
+  },
   splitHeadline: {
-    lineHeight: 34,
+    lineHeight: 30,
     marginBottom: 6,
+  },
+  splitHorizon: {
+    marginTop: 16,
+    lineHeight: 21,
+  },
+  /*
+   * The estimate block is styled DOWN on purpose — see the note in LearningCard.
+   * A rule above it and a muted figure keep a stated guess visually separate
+   * from the measured figures elsewhere on this screen.
+   */
+  estimateBlock: {
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.separator,
+    paddingBottom: 18,
+    marginBottom: 18,
+  },
+  estimateEyebrow: {
+    marginBottom: 8,
+  },
+  estimateFigure: {
+    color: Colors.textSecondary,
+    marginBottom: 2,
+  },
+  estimateSub: {
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  estimateLine: {
+    lineHeight: 21,
+    marginBottom: 14,
   },
   splitSub: {
     lineHeight: 18,
@@ -808,6 +1145,47 @@ const styles = StyleSheet.create({
   rhythmHeadline: {
     lineHeight: 28,
     marginBottom: 6,
+  },
+  quietCta: {
+    marginTop: 18,
+    paddingTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: Colors.separator,
+  },
+  quietCtaTitle: {
+    marginBottom: 4,
+  },
+  quietCtaBody: {
+    lineHeight: 18,
+    marginBottom: 14,
+  },
+  quietCtaButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+  },
+  quietCtaButtonText: {
+    ...Typography.headline,
+    color: Colors.surface,
+  },
+  quietActive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 18,
+    paddingTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: Colors.separator,
+  },
+  quietActiveText: {
+    flex: 1,
+    lineHeight: 21,
+  },
+  quietTurnOff: {
+    color: Colors.primary,
   },
   platHeader: {
     flexDirection: 'row',

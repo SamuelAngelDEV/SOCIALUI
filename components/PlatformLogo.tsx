@@ -19,7 +19,8 @@ type Props = {
  * tile size; the inner glyph scales with it.
  */
 export function PlatformLogo({ platform, size = 60 }: Props) {
-  const r = size * 0.24; // corner radius of the app-icon square
+  // Radii are expressed in viewBox units below, not pixels, so nothing here
+  // scales with `size` — the viewBox does that.
   const white = '#FFFFFF';
 
   return (

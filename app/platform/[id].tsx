@@ -12,12 +12,15 @@ import {
   Category,
   dayKey,
   effectiveSegmentEnd,
+  formatHourRange,
   IDLE_GRACE_MS,
   mapPathToCategory,
 } from '@/utils/stats';
+import { isWithinWindow, nextBoundary } from '@/utils/schedule';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
 import { LimitReachedOverlay } from '@/components/LimitReachedOverlay';
+import { QuietHoursOverlay } from '@/components/QuietHoursOverlay';
 import { SessionSummaryOverlay } from '@/components/SessionSummaryOverlay';
 
 // Sessions shorter than this close without a summary — not worth interrupting for.
@@ -39,7 +42,19 @@ export default function PlatformView() {
   const settings = useSettingsStore((s) => s.platformSettings[id]);
   const feedLimit = useSettingsStore((s) => s.feedLimits[id]);
   const master = useSettingsStore((s) => s.masterSettings);
+  const quietHours = useSettingsStore((s) => s.quietHours);
   const todayStats = useStatsStore((s) => s.days[dayKey()]);
+
+  // The quiet-hours wall. `quietOverrideRef` is per-visit and per-window: it is
+  // cleared as soon as the window closes, so the next one asks again rather than
+  // an "open anyway" tap disabling the feature for good.
+  const [quietBlocked, setQuietBlocked] = useState(false);
+  const quietBlockedRef = useRef(false);
+  const quietOverrideRef = useRef(false);
+  const setBlocked = (v: boolean) => {
+    quietBlockedRef.current = v;
+    setQuietBlocked(v);
+  };
 
   const webRef = useRef<WebView>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -148,6 +163,53 @@ export default function PlatformView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  /**
+   * Quiet hours, which can open part-way through a session.
+   *
+   * Crossing INTO the window goes through `pauseTracking`, which commits the
+   * running segment before the wall mounts. That ordering is the whole point:
+   * this screen owns `catStartRef`, and letting the overlay swallow an
+   * uncommitted segment would silently drop real tracked time — the same class
+   * of bug the idle clamp exists to avoid, arriving by a different door.
+   *
+   * The boundary is exact, so this arms a single timer instead of polling. The
+   * one-second cushion keeps the re-evaluation clear of the boundary instant
+   * itself, where a timer firing a hair early would read the old state and
+   * immediately re-arm for ~0ms.
+   */
+  useEffect(() => {
+    if (!hydrated || !quietHours.enabled) {
+      if (quietBlockedRef.current) setBlocked(false);
+      return;
+    }
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const evaluate = () => {
+      const inside = isWithinWindow(new Date(), quietHours);
+      if (inside && !quietOverrideRef.current) {
+        if (!quietBlockedRef.current) {
+          pauseTracking();
+          setBlocked(true);
+        }
+      } else if (!inside) {
+        quietOverrideRef.current = false;
+        if (quietBlockedRef.current) {
+          setBlocked(false);
+          resumeTracking();
+        }
+      }
+      const ms = nextBoundary(new Date(), quietHours);
+      if (ms !== null) timer = setTimeout(evaluate, ms + 1000);
+    };
+
+    evaluate();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, quietHours.enabled, quietHours.startHour, quietHours.endHour, id]);
+
   const clearLoadTimeout = () => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -253,6 +315,26 @@ export default function PlatformView() {
     );
   }
 
+  // Render the wall INSTEAD of the WebView, not on top of it. Loading the site
+  // behind a screen that says you asked not to be here would defeat the point —
+  // and on a mid-session block it also stops the page counting on the platform's
+  // own side while the user is looking at the overlay.
+  if (quietBlocked) {
+    return (
+      <QuietHoursOverlay
+        platformName={config.name}
+        window={formatHourRange(quietHours.startHour, quietHours.endHour)}
+        fromRhythm={quietHours.source === 'rhythm'}
+        onDone={closePlatform}
+        onOpenAnyway={() => {
+          quietOverrideRef.current = true;
+          setBlocked(false);
+          resumeTracking();
+        }}
+      />
+    );
+  }
+
   const injectedJS =
     hydrated && enabled ? buildInjection(id, settings ?? {}, feedLimit ?? 10, master) : 'true;';
   const wantsPiP = id === 'youtube' && !!settings?.pictureInPicture;
@@ -345,6 +427,7 @@ export default function PlatformView() {
 
         {summary && (
           <SessionSummaryOverlay
+            platform={config.id}
             platformName={config.name}
             sessionMs={summary.total}
             perCategory={summary.perCategory}

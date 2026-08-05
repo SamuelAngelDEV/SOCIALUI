@@ -1,22 +1,59 @@
-import { TextStyle } from 'react-native';
+import { Platform, TextStyle } from 'react-native';
 import { Colors } from './colors';
+
+/**
+ * Type — the system font, deliberately.
+ *
+ * WHY NOTHING IS BUNDLED
+ *
+ * On iOS the system font IS SF Pro Text / SF Pro Display, so asking for the
+ * system stack gets the real thing. That is better than shipping font files,
+ * not a compromise:
+ *
+ *   - SF Pro cannot legally be bundled. Apple's license limits it to Apple
+ *     platforms and this app builds for Android too.
+ *   - iOS switches between SF Pro Text and SF Pro Display automatically at
+ *     around 20pt, adjusting spacing and aperture for the size. Static bundled
+ *     files cannot do that.
+ *   - No download, no `useFonts` gate, no blank first frame, no bundle weight.
+ *
+ * Android renders Roboto. The app is not pixel-identical across platforms and
+ * that is the correct trade — each looks native where it runs.
+ *
+ * WEIGHT, NOT FAMILY. With the system font, weight is selected through
+ * `fontWeight`; naming a family per weight (the `Inter_600SemiBold` pattern
+ * this file used to use) would pin us back to a bundled face.
+ */
+
+/**
+ * The system serif — New York on iOS 13+, installed, not bundled.
+ *
+ * Kept for two or three placements only: the Rhythm finding and the session
+ * verdict. `research/03-visual-direction.md` §4.4 makes the argument and it
+ * still holds — Freedom and Scrolless both use a serif in their marketing and
+ * ship a stock sans inside the app, and that mismatch is a large part of why
+ * they read cheap. A serif *in product* is close to free differentiation.
+ *
+ * Android has no equivalent, so it falls back to the platform serif rather
+ * than to something arbitrary.
+ */
+const SERIF = Platform.select({ ios: 'New York', default: 'serif' });
 
 export const Typography = {
   /**
-   * Newsreader, used with restraint — the one sentence or number that carries a
-   * screen. Roughly four display placements per screen, maximum. Every premium
-   * app in the category has a display face with a point of view; every cheap one
-   * uses the system font.
+   * The one sentence or number that carries a screen. Roughly four placements
+   * per screen, maximum.
    */
   statement: {
-    fontFamily: 'Newsreader_400Regular',
+    fontFamily: SERIF,
     fontSize: 30,
     letterSpacing: -0.4,
     color: Colors.textPrimary,
   },
-  /** Newsreader italic — a Rhythm finding, a session verdict. Never a paragraph. */
+  /** Serif italic — a Rhythm finding, a session verdict. Never a paragraph. */
   quote: {
-    fontFamily: 'Newsreader_400Regular_Italic',
+    fontFamily: SERIF,
+    fontStyle: 'italic',
     fontSize: 19,
     color: Colors.primary,
   },
@@ -25,76 +62,76 @@ export const Typography = {
    * light weight at a large size looks deliberate where bold looks shouty.
    */
   figureXL: {
-    fontFamily: 'Inter_300Light',
+    fontWeight: '300',
     fontSize: 44,
     letterSpacing: -1.2,
     color: Colors.textPrimary,
   },
   figureLG: {
-    fontFamily: 'Inter_300Light',
+    fontWeight: '300',
     fontSize: 32,
     letterSpacing: -0.8,
     color: Colors.textPrimary,
   },
   largeTitle: {
-    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
     fontSize: 28,
     letterSpacing: -0.3,
     color: Colors.textPrimary,
   },
   title: {
-    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
     fontSize: 22,
     letterSpacing: -0.2,
     color: Colors.textPrimary,
   },
   headline: {
-    fontFamily: 'Inter_500Medium',
+    fontWeight: '500',
     fontSize: 17,
     color: Colors.textPrimary,
   },
-  // Platform name inside a home grid tile. Design system specifies 15/500, which
-  // falls between `body` (15/400) and `headline` (17/500).
+  /** Platform name inside a home grid tile: 15/500, between body and headline. */
   tileLabel: {
-    fontFamily: 'Inter_500Medium',
+    fontWeight: '500',
     fontSize: 15,
     color: Colors.textPrimary,
   },
   body: {
-    fontFamily: 'Inter_400Regular',
+    fontWeight: '400',
     fontSize: 15,
     color: Colors.textPrimary,
   },
   callout: {
-    fontFamily: 'Inter_400Regular',
+    fontWeight: '400',
     fontSize: 13,
     color: Colors.textSecondary,
   },
   caption: {
-    fontFamily: 'Inter_500Medium',
+    fontWeight: '500',
     fontSize: 11,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
     color: Colors.textTertiary,
   },
-  // Sentence-case label inside a filled pill, e.g. "Recommended" on an onboarding
-  // preset card. Shares `caption`'s metrics (11/500) but deliberately stays a
-  // separate token: `caption` is an uppercase eyebrow (letterSpacing + textTransform)
-  // and applying it here would rewrite the copy as "RECOMMENDED".
+  /**
+   * Sentence-case label inside a filled pill. Shares `caption`'s metrics
+   * (11/500) but stays a separate token: `caption` is an uppercase eyebrow, and
+   * applying it here would rewrite "Recommended" as "RECOMMENDED".
+   */
   tag: {
-    fontFamily: 'Inter_500Medium',
+    fontWeight: '500',
     fontSize: 11,
     color: Colors.surface,
   },
-  // Status pill in Settings, e.g. the locked "Always On" marker.
+  /** Status pill in Settings, e.g. the locked "Always On" marker. */
   pill: {
-    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
     fontSize: 12,
     color: Colors.switchOn,
   },
-  // Smallest type in the app: the stickers on a home tile (BETA / BLOCK ONLY / SOON).
+  /** Smallest type in the app: home-tile stickers (BETA / BLOCK ONLY / SOON). */
   badge: {
-    fontFamily: 'Inter_700Bold',
+    fontWeight: '700',
     fontSize: 9,
     letterSpacing: 0.4,
     color: Colors.surface,

@@ -22,6 +22,12 @@ const COPY = Strings.onboarding;
  * This is a routing answer, not a self-assessment: `sleep`/`focus` argue for a
  * tighter feed cap, and `mood` is the one that argues for taking the counts
  * off. Q4 still decides which mode; this only adjusts it. See `recommendMode`.
+ *
+ * `mood` is a legacy id whose label now names the comparison rather than the
+ * feeling (see `Strings.onboarding.cost.mood`). The id is deliberately NOT
+ * renamed: it is the persisted value, and `isCostAnswer` re-validates stored
+ * answers against this list on hydration — changing it would silently discard
+ * the Q1 answer of every user who already went through onboarding.
  */
 export type CostAnswer = 'sleep' | 'focus' | 'presence' | 'mood' | 'time';
 /** Q2 — the user's own estimate of a day. */

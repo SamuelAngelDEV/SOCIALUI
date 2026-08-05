@@ -27,6 +27,10 @@ import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
 import { Radii, Size, Spacing } from '@/constants/spacing';
 import { Strings } from '@/constants/strings';
+import { PLATFORM_LIST, PlatformConfig, PlatformId } from '@/constants/platforms';
+import { COMING_SOON } from '@/constants/features';
+import { PlatformLogo } from '@/components/PlatformLogo';
+import { IconChip } from '@/components/ui';
 import { PRESETS, recommendMode } from '@/constants/presets';
 import {
   AMOUNT_OPTIONS,
@@ -59,11 +63,19 @@ const REASSURANCES = [
   { Icon: Hourglass, text: COPY.done.feedEnds },
 ] as const;
 
-/** Question steps, in order. Presets and done follow after. */
+/**
+ * Question steps, in order, then the app picker, then presets and done.
+ *
+ * The picker sits AFTER the five questions and before the mode: the questions
+ * are about the person and drive `recommendMode`, the picker is about their
+ * phone. Putting it last of the inputs also means the mode card, which applies
+ * to the apps they just chose, follows immediately from them.
+ */
 const QUESTION_COUNT = 5;
-const PRESETS_STEP = QUESTION_COUNT; // 5
-const DONE_STEP = QUESTION_COUNT + 1; // 6
-const STEP_COUNT = QUESTION_COUNT + 2; // 7
+const APPS_STEP = QUESTION_COUNT; // 5
+const PRESETS_STEP = QUESTION_COUNT + 1; // 6
+const DONE_STEP = QUESTION_COUNT + 2; // 7
+const STEP_COUNT = QUESTION_COUNT + 3; // 8
 
 /** Toggle `id` in a multi-select list, clearing it if `exclusiveId` (an "I don't
  *  know" / "opt out entirely" answer) is involved on either side of the tap. */
@@ -112,6 +124,96 @@ function OptionRow({
   );
 }
 
+/** What the user decided about one app. */
+type AppChoice = 'off' | 'track' | 'restrict';
+
+/**
+ * One row of the app picker.
+ *
+ * Tapping the row adopts the app (defaulting to `restrict`, the reason anyone
+ * installed this); the segmented control then switches between restricting and
+ * only counting. Apps that cannot be restricted — Snapchat, and anything not
+ * shipped yet — can still be adopted so their time is counted, but they get an
+ * explanation instead of a control rather than a control that would lie.
+ */
+function AppRow({
+  platform,
+  choice,
+  restrictable,
+  note,
+  onChange,
+}: {
+  platform: PlatformConfig;
+  choice: AppChoice;
+  restrictable: boolean;
+  note?: string;
+  onChange: (next: AppChoice) => void;
+}) {
+  const on = choice !== 'off';
+  return (
+    <Pressable
+      style={[styles.appRow, on && styles.appRowOn]}
+      onPress={() => onChange(on ? 'off' : restrictable ? 'restrict' : 'track')}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: on }}
+    >
+      <View style={styles.appRowTop}>
+        <IconChip size={44} tint={on ? Colors.surface : Colors.groupedBackground}>
+          <PlatformLogo platform={platform.id} size={28} />
+        </IconChip>
+        <View style={styles.appRowText}>
+          <Text style={[Typography.headline, on && { color: Colors.primary }]}>
+            {platform.name}
+          </Text>
+          <Text style={[Typography.callout, styles.appRowNote]}>
+            {note ?? (on
+              ? choice === 'restrict'
+                ? COPY.apps.restrictNote
+                : COPY.apps.trackNote
+              : ' ')}
+          </Text>
+        </View>
+        <View
+          style={[
+            styles.optionIndicator,
+            styles.optionIndicatorSquare,
+            on && styles.optionIndicatorSelected,
+          ]}
+        >
+          {on && <Check size={13} color={Colors.surface} />}
+        </View>
+      </View>
+
+      {on && restrictable && (
+        <View style={styles.segment}>
+          {(['restrict', 'track'] as const).map((mode) => {
+            const active = choice === mode;
+            return (
+              <Pressable
+                key={mode}
+                style={[styles.segmentBtn, active && styles.segmentBtnOn]}
+                onPress={() => onChange(mode)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+              >
+                <Text
+                  style={[
+                    Typography.callout,
+                    styles.segmentText,
+                    active && styles.segmentTextOn,
+                  ]}
+                >
+                  {mode === 'restrict' ? COPY.apps.restrict : COPY.apps.track}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
 export default function Onboarding() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -123,6 +225,12 @@ export default function Onboarding() {
   const [keeps, setKeeps] = useState<KeepAnswer[]>([]);
   const [goal, setGoal] = useState<GoalAnswer | null>(null);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  /*
+   * Everything starts at 'off'. A picker that arrives pre-ticked is not asking
+   * a question, and the answer it collects isn't the user's — which matters
+   * here because this list decides what the rest of the app acts on.
+   */
+  const [appChoice, setAppChoice] = useState<Partial<Record<PlatformId, AppChoice>>>({});
   const slideX = useRef(new Animated.Value(0)).current;
 
   const setOnboarded = useSettingsStore((s) => s.setOnboarded);
@@ -132,6 +240,8 @@ export default function Onboarding() {
   const setKeepsStore = useSettingsStore((s) => s.setKeeps);
   const setMonthGoal = useSettingsStore((s) => s.setMonthGoal);
   const applyPreset = useSettingsStore((s) => s.applyPreset);
+  const setPlatformInUse = useSettingsStore((s) => s.setPlatformInUse);
+  const setPlatformEnabled = useSettingsStore((s) => s.setPlatformEnabled);
 
   /**
    * Q4 picks the shape, Q1 adjusts it. Recomputed from live answers so stepping
@@ -169,6 +279,9 @@ export default function Onboarding() {
         return keeps.length > 0;
       case 4:
         return goal !== null;
+      case APPS_STEP:
+        // At least one app, or the rest of the app has nothing to act on.
+        return PLATFORM_LIST.some((p) => appChoice[p.id] && appChoice[p.id] !== 'off');
       default:
         return true;
     }
@@ -190,6 +303,16 @@ export default function Onboarding() {
       animateTo(4);
     } else if (step === 4) {
       if (goal) setMonthGoal(goal);
+      animateTo(APPS_STEP);
+    } else if (step === APPS_STEP) {
+      for (const p of PLATFORM_LIST) {
+        const choice = appChoice[p.id] ?? 'off';
+        setPlatformInUse(p.id, choice !== 'off');
+        // `setPlatformInUse` already forces `platformEnabled` false when an app
+        // is dropped, so only the restrict case needs setting here.
+        if (choice === 'restrict') setPlatformEnabled(p.id, true);
+        else if (choice === 'track') setPlatformEnabled(p.id, false);
+      }
       setSelectedPreset(recommendation.presetId);
       animateTo(PRESETS_STEP);
     } else if (step === PRESETS_STEP) {
@@ -372,6 +495,44 @@ export default function Onboarding() {
           </ScrollView>
         )}
 
+        {step === APPS_STEP && (
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.stepContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={[Typography.largeTitle, styles.title]}>{COPY.apps.title}</Text>
+            <Text style={[Typography.body, styles.subtitle]}>{COPY.apps.subtitle}</Text>
+            <View style={styles.optionList}>
+              {PLATFORM_LIST.map((p) => {
+                const soon = COMING_SOON.includes(p.id);
+                const blockOnly = p.kind === 'block-only';
+                return (
+                  <AppRow
+                    key={p.id}
+                    platform={p}
+                    choice={appChoice[p.id] ?? 'off'}
+                    restrictable={!soon && !blockOnly}
+                    note={
+                      soon
+                        ? COPY.apps.comingSoon
+                        : blockOnly
+                          ? COPY.apps.blockOnly
+                          : undefined
+                    }
+                    onChange={(next) =>
+                      setAppChoice((prev) => ({ ...prev, [p.id]: next }))
+                    }
+                  />
+                );
+              })}
+            </View>
+            {!canAdvance && (
+              <Text style={[Typography.callout, styles.unsureNote]}>{COPY.apps.needOne}</Text>
+            )}
+          </ScrollView>
+        )}
+
         {step === PRESETS_STEP && (
           <ScrollView
             style={styles.scroll}
@@ -476,7 +637,7 @@ export default function Onboarding() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: 'transparent',
     paddingHorizontal: Spacing.xxl,
   },
   navHeader: {
@@ -498,20 +659,27 @@ const styles = StyleSheet.create({
   scroll: {
     flex: 1,
   },
+  /*
+   * Top-aligned, NOT centred.
+   *
+   * `justifyContent: 'center'` floated five options in the middle of an 852pt
+   * screen with dead space above and below — the single worst instance of the
+   * half-empty-screen problem in the app. Content now starts high and runs
+   * down, which reads composed rather than adrift, and leaves room for the
+   * question to breathe without the answers drifting away from it.
+   */
   stepContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    paddingVertical: Spacing.lg,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.lg,
   },
   title: {
-    textAlign: 'center',
     marginBottom: Spacing.sm,
   },
   subtitle: {
-    textAlign: 'center',
     color: Colors.textSecondary,
-    lineHeight: 22,
-    marginBottom: 36,
+    lineHeight: 21,
+    marginBottom: Spacing.xxl,
   },
   chipGrid: {
     gap: Spacing.md,
@@ -539,6 +707,53 @@ const styles = StyleSheet.create({
   },
   optionList: {
     gap: Spacing.md,
+  },
+  appRow: {
+    paddingVertical: 14,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: Radii.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+    gap: Spacing.md,
+  },
+  appRowOn: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primarySubtle,
+  },
+  appRowTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  appRowText: {
+    flex: 1,
+    gap: 1,
+  },
+  appRowNote: {
+    color: Colors.textTertiary,
+  },
+  segment: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    backgroundColor: Colors.groupedBackground,
+    borderRadius: Radii.md,
+    padding: 3,
+  },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  segmentBtnOn: {
+    backgroundColor: Colors.primary,
+  },
+  segmentText: {
+    color: Colors.textSecondary,
+  },
+  segmentTextOn: {
+    color: Colors.surface,
   },
   optionRow: {
     flexDirection: 'row',

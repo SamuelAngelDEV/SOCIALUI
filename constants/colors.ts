@@ -46,14 +46,18 @@ export const Colors = {
    */
   catFeed: '#8A3D9E', // algorithmic — 5.79:1
   catReels: '#C13B6B', // algorithmic — 4.57:1
+  catExplore: '#A65E1B', // algorithmic — 4.43:1
   catMessages: '#1E7A72', // intentional — 4.60:1
   catVideo: '#2F63A8', // intentional — 5.41:1
+  catSearch: '#4A4E9C', // intentional — 6.56:1
   catOther: '#8E8296', // unclassified — 3.25:1
 
   catTextFeed: '#6B2D78', // 8.26:1
   catTextReels: '#A32B58', // 6.17:1
+  catTextExplore: '#6E4E12', // 6.80:1
   catTextMessages: '#166159', // 6.50:1
   catTextVideo: '#28518A', // 7.13:1
+  catTextSearch: '#3F3A88', // 8.64:1
   catTextOther: '#6E6377', // 5.05:1
 
   border: '#E8DCEC', // decorative hairline — no WCAG minimum

@@ -70,9 +70,50 @@ function extractFunction(src, name) {
   return `function ${name}(${params.join(', ')}) ${body}`;
 }
 
+/**
+ * The `Category` union, read from source.
+ *
+ * Parsed rather than listed here so that adding a category without classifying
+ * it fails this script instead of silently shipping.
+ */
+function loadCategories(src) {
+  const m = /export type Category\s*=([\s\S]*?);/.exec(src);
+  if (!m) throw new Error('could not find the Category union in utils/stats.ts');
+  return m[1]
+    .split('|')
+    .map((s) => s.trim().replace(/'/g, ''))
+    .filter(Boolean);
+}
+
+/**
+ * CATEGORY_KIND as an object, read from source.
+ *
+ * `splitByKind` itself is deliberately NOT lifted: its body carries type syntax
+ * (`const out: KindSplit`, an `as` cast) that `extractFunction` refuses on
+ * purpose, and loosening that guard to admit one function would weaken it for
+ * the three that genuinely depend on it. What matters here is the classification
+ * — which side each surface counts towards — not the four lines of summing, so
+ * that is what gets checked.
+ */
+function loadCategoryKind(src) {
+  const m = /export const CATEGORY_KIND[^=]*=\s*\{/.exec(src);
+  if (!m) throw new Error('could not find CATEGORY_KIND in utils/stats.ts');
+  const open = src.indexOf('{', m.index);
+  const close = matchDelimiter(src, open, '{', '}');
+  const out = {};
+  for (const line of src.slice(open + 1, close).split('\n')) {
+    const kv = /^\s*(\w+)\s*:\s*'([a-z]+)'/.exec(line);
+    if (kv) out[kv[1]] = kv[2];
+  }
+  return out;
+}
+
 function loadStats() {
   const src = fs.readFileSync(STATS_TS, 'utf8');
-  const names = ['normalizePath', 'mapPathToCategory', 'effectiveSegmentEnd'];
+  // `hasSegment` is a module-private helper that `mapPathToCategory` calls. A
+  // lifted body does not close over the module, so anything it references has
+  // to be lifted alongside it or the call throws at eval time.
+  const names = ['normalizePath', 'hasSegment', 'mapPathToCategory', 'effectiveSegmentEnd'];
   const code = names.map((n) => extractFunction(src, n)).join('\n\n');
 
   // IDLE_GRACE_MS is a plain const; read it from source too rather than
@@ -82,10 +123,21 @@ function loadStats() {
 
   // eslint-disable-next-line no-new-func
   const factory = new Function(`${code}\nreturn { ${names.join(', ')} };`);
-  return { ...factory(), IDLE_GRACE_MS: Number(graceMatch[1].replace(/_/g, '')) };
+  return {
+    ...factory(),
+    IDLE_GRACE_MS: Number(graceMatch[1].replace(/_/g, '')),
+    CATEGORIES: loadCategories(src),
+    CATEGORY_KIND: loadCategoryKind(src),
+  };
 }
 
-const { mapPathToCategory, effectiveSegmentEnd, IDLE_GRACE_MS } = loadStats();
+const {
+  mapPathToCategory,
+  effectiveSegmentEnd,
+  IDLE_GRACE_MS,
+  CATEGORIES,
+  CATEGORY_KIND,
+} = loadStats();
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -122,8 +174,12 @@ check('IG single reel', ig('/reel/C8xYz1AbCdE/'), 'reels');
 check('IG reels audio page', ig('/reels/audio/123456789/'), 'reels');
 check('IG DM inbox', ig('/direct/inbox/'), 'messages');
 check('IG DM thread', ig('/direct/t/17845678901234567/'), 'messages');
-check('IG explore is unclassified, not feed', ig('/explore/'), 'other');
-check('IG explore search', ig('/explore/search/'), 'other');
+check('IG explore is algorithmic, not feed', ig('/explore/'), 'explore');
+check('IG explore tags', ig('/explore/tags/sunset/'), 'explore');
+// Ordering regression: search lives UNDER explore, so a prefix test on
+// '/explore' alone books every search as algorithmic time.
+check('IG explore search is search, not explore', ig('/explore/search/'), 'search');
+check('IG explore search keyword', ig('/explore/search/keyword/'), 'search');
 check('IG stories', ig('/stories/someuser/3412345678901234567/'), 'other');
 check('IG profile', ig('/someuser/'), 'other');
 check('IG saved', ig('/someuser/saved/'), 'other');
@@ -144,7 +200,9 @@ check('YT shorts', yt('/shorts/abc123XYZ_-'), 'reels');
 check('YT shorts tab', yt('/shorts'), 'reels');
 check('YT subscriptions [unverified]', yt('/feed/subscriptions'), 'other');
 check('YT history [unverified]', yt('/feed/history'), 'other');
-check('YT search results [unverified]', yt('/results?search_query=cats'), 'other');
+check('YT search results [unverified]', yt('/results?search_query=cats'), 'search');
+check('YT trending [unverified]', yt('/feed/trending'), 'explore');
+check('YT explore [unverified]', yt('/feed/explore'), 'explore');
 check('YT channel handle [unverified]', yt('/@somechannel'), 'other');
 check('YT playlist [unverified]', yt('/playlist?list=PL123'), 'other');
 check('YT desktop-mode home', yt('/?app=desktop'), 'feed');
@@ -161,6 +219,15 @@ check('RD comment permalink, no slug', rd('/r/aww/comments/1a2b3c/'), 'other');
 check('RD chat', rd('/chat/'), 'messages');
 check('RD messages', rd('/message/inbox/'), 'messages');
 check('RD user profile', rd('/user/someone/'), 'other');
+check('RD site search', rd('/search/'), 'search');
+// Subreddit search is nested under /r/, so a prefix test can't find it…
+check('RD subreddit search', rd('/r/aww/search/'), 'search');
+// …and a substring test would swallow every subreddit whose NAME starts with
+// "search". This is the whole reason hasSegment exists.
+check('RD r/searchengines is a subreddit, not a search', rd('/r/searchengines/'), 'feed');
+check('RD r/searchengines thread', rd('/r/searchengines/comments/1a2b3c/x/'), 'other');
+check('RD popular is cross-subreddit ranking', rd('/r/popular'), 'explore');
+check('RD all is cross-subreddit ranking', rd('/r/all'), 'explore');
 
 section('mapPathToCategory — X / Facebook / LinkedIn / TikTok');
 check('X home', mapPathToCategory('twitter', '/home'), 'feed');
@@ -168,19 +235,51 @@ check('X home trailing slash', mapPathToCategory('twitter', '/home/'), 'feed');
 check('X root', mapPathToCategory('twitter', '/'), 'feed');
 check('X DMs', mapPathToCategory('twitter', '/messages/1234'), 'messages');
 check('X status [unverified]', mapPathToCategory('twitter', '/user/status/123'), 'other');
+check('X explore [unverified]', mapPathToCategory('twitter', '/explore'), 'explore');
+check('X search [unverified]', mapPathToCategory('twitter', '/search?q=cats'), 'search');
 check('FB home', mapPathToCategory('facebook', '/'), 'feed');
 check('FB legacy home.php', mapPathToCategory('facebook', '/home.php'), 'feed');
 check('FB reel', mapPathToCategory('facebook', '/reel/123456'), 'reels');
 check('FB watch', mapPathToCategory('facebook', '/watch/'), 'video');
 check('FB messages', mapPathToCategory('facebook', '/messages/t/123'), 'messages');
+check('FB search [unverified]', mapPathToCategory('facebook', '/search/top?q=x'), 'search');
 check('LI feed', mapPathToCategory('linkedin', '/feed/'), 'feed');
 check('LI messaging', mapPathToCategory('linkedin', '/messaging/thread/123'), 'messages');
 check('LI jobs', mapPathToCategory('linkedin', '/jobs/'), 'other');
+check('LI search [unverified]', mapPathToCategory('linkedin', '/search/results/all/?q=x'), 'search');
 check('TT root is the video wall', mapPathToCategory('tiktok', '/'), 'reels');
 check('TT user video', mapPathToCategory('tiktok', '/@user/video/123'), 'reels');
 check('TT messages', mapPathToCategory('tiktok', '/messages'), 'messages');
-check('TT search is user-driven', mapPathToCategory('tiktok', '/search?q=cats'), 'other');
+check('TT search is user-driven', mapPathToCategory('tiktok', '/search?q=cats'), 'search');
 check('unknown platform', mapPathToCategory('snapchat', '/'), 'other');
+
+// ---------------------------------------------------------------------------
+// 1b. The classification itself
+// ---------------------------------------------------------------------------
+//
+// mapPathToCategory decides which surface; CATEGORY_KIND decides which side of
+// the headline percentage that surface counts towards. The second is the one
+// that can move the number the whole product argues about, so it is pinned here
+// rather than left to whoever edits the map next.
+
+section('CATEGORY_KIND — the split');
+
+const KINDS = { algorithmic: [], intentional: [], unclassified: [] };
+for (const [cat, kind] of Object.entries(CATEGORY_KIND)) {
+  if (KINDS[kind]) KINDS[kind].push(cat);
+}
+const sorted = (a) => [...a].sort().join(',');
+
+// A category with no kind is silently dropped by splitByKind's `if (!kind)`
+// guard — its time would vanish from both sides of the ratio without any error.
+for (const cat of CATEGORIES) {
+  check(`${cat} is classified`, typeof CATEGORY_KIND[cat] === 'string', true);
+}
+check('no stray kinds', sorted(Object.keys(CATEGORY_KIND)), sorted(CATEGORIES));
+
+check('algorithmic set', sorted(KINDS.algorithmic), 'explore,feed,reels');
+check('intentional set', sorted(KINDS.intentional), 'messages,search,video');
+check('unclassified set', sorted(KINDS.unclassified), 'other');
 
 // ---------------------------------------------------------------------------
 // 2. effectiveSegmentEnd

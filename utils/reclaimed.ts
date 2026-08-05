@@ -164,5 +164,99 @@ export function formatSpan(daysPerYear: number): string {
   return `${d} ${d === 1 ? 'day' : 'days'}`;
 }
 
+/** Exposed so callers can project a partial rate — e.g. algorithmic time alone. */
+export const msPerWeekToDaysPerYear = toDaysPerYear;
+
+// ── The long horizon ──────────────────────────────────────────────────────────
+
+/**
+ * How far the second line projects.
+ *
+ * Ten years, not a lifetime. "By 65 that's 2.3 years of your life" is the more
+ * dramatic sentence and the reason it isn't here: it projects a rate measured
+ * over two weeks across four decades, and every objection a sceptical user
+ * raises to it is correct. A decade is long enough to matter and short enough
+ * that "if this holds" is still a sentence someone can honestly agree to.
+ */
+export const HORIZON_YEARS = 10;
+
+const DAYS_PER_MONTH = 30.44; // mean Gregorian month
+const DAYS_PER_YEAR = 365.25;
+
+export function projectYears(daysPerYear: number, years: number = HORIZON_YEARS): number {
+  return daysPerYear * years;
+}
+
+const plural = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
+
+/**
+ * `formatSpan` for spans long enough that days stop being readable — steps up
+ * through weeks and months so a decade reads "7 months", not "212 days".
+ *
+ * Weeks and months are whole numbers on purpose. A decade projection built from
+ * two measured weeks does not support a decimal place, and printing one implies
+ * a precision the input never had. Only sub-14-day spans keep `formatSpan`'s
+ * decimal, because there the number really is that small.
+ */
+export function formatLongSpan(days: number): string {
+  if (days < 14) return formatSpan(days); // hours or days, with its own rounding
+  if (days < 60) return plural(Math.round(days / 7), 'week');
+  if (days < DAYS_PER_YEAR) return plural(Math.round(days / DAYS_PER_MONTH), 'month');
+  const y = days / DAYS_PER_YEAR;
+  return plural(y < 10 ? Math.round(y * 10) / 10 : Math.round(y), 'year');
+}
+
+// ── Day one: their own estimate, projected ────────────────────────────────────
+
+/**
+ * The daily band an onboarding estimate stands for. Structurally identical to
+ * `AMOUNT_BANDS` in constants/survey.ts, and deliberately passed in rather than
+ * imported: this module stays free of app imports so `scripts/verify-reclaimed.js`
+ * can require the compiled output directly. `null` is "I don't know".
+ */
+export type EstimateBand = { minMs: number; maxMs: number | null } | null;
+
+export type EstimateProjection = {
+  /** ms/day the projection was built from. */
+  msPerDay: number;
+  daysPerYear: number;
+  /** Days across `HORIZON_YEARS`. */
+  daysPerHorizon: number;
+  /**
+   * True when the band is open-ended ("more than 4 hours"), so the figure is a
+   * floor rather than a midpoint and the copy has to say "at least".
+   */
+  atLeast: boolean;
+};
+
+/**
+ * What the user's OWN stated guess works out to, for the first-open screen.
+ *
+ * This is not a measurement and must never be rendered as one — see the note in
+ * app/insights.tsx. It exists because on day one there is no measured data, and
+ * the honest alternative to an empty screen is arithmetic on the number they
+ * just gave us, clearly labelled as theirs.
+ *
+ * Returns `null` for "I honestly don't know". A missing guess is a real answer,
+ * not a zero — the same rule `AMOUNT_BANDS` states.
+ */
+export function projectFromEstimate(band: EstimateBand): EstimateProjection | null {
+  if (!band) return null;
+
+  // Open-ended band: use its floor. Inventing a ceiling for "4 hours or more"
+  // would be us making up the number rather than reporting theirs.
+  const atLeast = band.maxMs === null;
+  const msPerDay = atLeast ? band.minMs : (band.minMs + band.maxMs!) / 2;
+  if (msPerDay <= 0) return null;
+
+  const daysPerYear = toDaysPerYear(msPerDay * 7);
+  return {
+    msPerDay,
+    daysPerYear,
+    daysPerHorizon: projectYears(daysPerYear),
+    atLeast,
+  };
+}
+
 /** Today's key — re-exported so callers don't reach past this module for it. */
 export { dayKey };

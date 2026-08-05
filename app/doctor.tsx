@@ -135,7 +135,7 @@ export default function Doctor() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: 'transparent',
     paddingHorizontal: Spacing.lg,
   },
   header: {

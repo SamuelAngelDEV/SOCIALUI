@@ -1,14 +1,51 @@
 import { PlatformId } from '@/constants/platforms';
 
-export type Category = 'feed' | 'reels' | 'messages' | 'video' | 'other';
+export type Category =
+  | 'feed'
+  | 'reels'
+  | 'explore'
+  | 'messages'
+  | 'video'
+  | 'search'
+  | 'other';
 
 export const CATEGORY_LABELS: Record<Category, string> = {
   feed: 'Feed',
   reels: 'Reels & Shorts',
+  explore: 'Explore',
   messages: 'Messages',
   video: 'Watching',
+  search: 'Search',
   other: 'Other',
 };
+
+/**
+ * What a category is called on a given platform.
+ *
+ * Storage stays one category per *kind of surface* — Instagram Reels, YouTube
+ * Shorts and TikTok's For You page are the same thing wearing three brand
+ * names, and splitting them in storage would need a data migration to buy
+ * nothing. The naming is a read-time concern, so it lives here: the user sees
+ * the word their app uses, and `CATEGORY_KIND` still has one row to reason about.
+ *
+ * Falls back to `CATEGORY_LABELS` for anything not overridden.
+ */
+const PLATFORM_CATEGORY_LABELS: Partial<
+  Record<PlatformId, Partial<Record<Category, string>>>
+> = {
+  instagram: { reels: 'Reels', feed: 'Feed', video: 'Video' },
+  youtube: { reels: 'Shorts', feed: 'Home', video: 'Videos' },
+  tiktok: { reels: 'For You', feed: 'For You' },
+  facebook: { reels: 'Reels', video: 'Watch' },
+  twitter: { feed: 'Timeline' },
+  reddit: { feed: 'Subreddits', explore: 'Popular' },
+  linkedin: { feed: 'Feed' },
+};
+
+/** The label for `category` as `platform` names it. */
+export function categoryLabel(platform: PlatformId, category: Category): string {
+  return PLATFORM_CATEGORY_LABELS[platform]?.[category] ?? CATEGORY_LABELS[category];
+}
 
 /**
  * Reduce whatever the WebView handed us to a bare, comparable pathname.
@@ -36,6 +73,18 @@ function normalizePath(path: string): string {
   return p;
 }
 
+/**
+ * Does `p` contain `seg` as a whole path segment?
+ *
+ * Substring matching is wrong here and it fails quietly: `/r/searchengines`
+ * contains the substring `/search`, so a naive `includes` would book every
+ * visit to that subreddit as search time, permanently and invisibly. Splitting
+ * on '/' is the only test that can't do that.
+ */
+function hasSegment(p: string, seg: string): boolean {
+  return p.split('/').filter(Boolean).includes(seg);
+}
+
 /** Map a pathname inside a platform's WebView to a time category. */
 export function mapPathToCategory(platform: PlatformId, path: string): Category {
   const p = normalizePath(path);
@@ -45,21 +94,31 @@ export function mapPathToCategory(platform: PlatformId, path: string): Category 
       // '/reels' is the Reels tab and '/reel/{id}' a single reel — the app's own
       // route guards in injection/instagram.ts key on exactly these two shapes.
       if (p.startsWith('/reels') || p.startsWith('/reel/')) return 'reels';
+      // Search lives UNDER explore ('/explore/search/keyword'), so it has to be
+      // tested first or every search is booked as algorithmic Explore time.
+      if (p.startsWith('/explore/search')) return 'search';
+      if (p.startsWith('/explore')) return 'explore';
       if (p === '/' || p.startsWith('/p/')) return 'feed';
       return 'other';
     case 'youtube':
       if (p.startsWith('/shorts')) return 'reels';
       if (p.startsWith('/watch')) return 'video';
+      // '/results' is where '?search_query=' lands; the query is already stripped.
+      if (p.startsWith('/results')) return 'search';
+      if (p.startsWith('/feed/explore') || p.startsWith('/feed/trending')) return 'explore';
       if (p === '/') return 'feed';
       return 'other';
     case 'twitter':
       if (p.startsWith('/messages')) return 'messages';
+      if (p.startsWith('/search')) return 'search';
+      if (p.startsWith('/explore')) return 'explore';
       if (p === '/home' || p === '/') return 'feed';
       return 'other';
     case 'facebook':
       if (p.startsWith('/messages')) return 'messages';
       if (p.startsWith('/reel')) return 'reels';
       if (p.startsWith('/watch')) return 'video';
+      if (p.startsWith('/search')) return 'search';
       // m.facebook.com still serves the old '/home.php' alongside '/'.
       if (p === '/' || p.startsWith('/home')) return 'feed';
       return 'other';
@@ -71,16 +130,23 @@ export function mapPathToCategory(platform: PlatformId, path: string): Category 
       // thread read is booked as algorithmic feed time and the headline
       // useful-vs-algorithmic split is inflated on Reddit's heaviest surface.
       if (p.includes('/comments/')) return 'other';
+      // Subreddit search is '/r/{sub}/search', so this can't be a prefix test
+      // and can't be a substring one either — see `hasSegment`.
+      if (hasSegment(p, 'search')) return 'search';
+      // r/popular and r/all are Reddit's cross-subreddit ranked listings — the
+      // same job Explore does elsewhere, and not a subreddit the user chose.
+      if (p === '/r/popular' || p === '/r/all') return 'explore';
       if (p === '/' || p.startsWith('/r/')) return 'feed';
       return 'other';
     case 'tiktok':
       if (p.startsWith('/messages')) return 'messages';
       // Search is the one TikTok surface the user drives themselves; everything
       // else really is the short-video wall.
-      if (p.startsWith('/search')) return 'other';
+      if (p.startsWith('/search')) return 'search';
       return 'reels';
     case 'linkedin':
       if (p.startsWith('/messaging')) return 'messages';
+      if (p.startsWith('/search')) return 'search';
       if (p.startsWith('/feed') || p === '/') return 'feed';
       return 'other';
     default:
@@ -185,23 +251,38 @@ export type CategoryKind = 'intentional' | 'algorithmic' | 'unclassified';
 /**
  * Which side of the split each activity category falls on.
  *
- * `messages` and `video` are things the user went looking for: a specific person
- * to talk to, a specific video to watch. `feed` and `reels` are things a ranking
- * model chose for them. That distinction — not "which app" — is what we report.
+ * `messages`, `video` and `search` are things the user went looking for: a
+ * specific person, a specific video, a specific query. `feed`, `reels` and
+ * `explore` are things a ranking model chose for them. That distinction — not
+ * "which app" — is what we report.
  *
- * `other` is deliberately its own kind rather than being folded into either side.
- * It is the fallback branch of `mapPathToCategory`: profiles, search, notifications,
- * settings, Explore, anything a pathname didn't identify. Some of that is clearly
- * intentional (searching for a person) and some is clearly algorithmic (Explore,
- * "suggested for you"), and we cannot tell which from a URL. Assigning it to
- * either side would move the headline percentage by an amount we could not
- * defend, so it is excluded from the ratio and reported on its own line instead.
+ * `other` is deliberately its own kind rather than being folded into either
+ * side: profiles, notifications, settings, anything a pathname didn't identify.
+ * Assigning it would move the headline percentage by an amount we could not
+ * defend, so it is excluded from the ratio and reported on its own line.
+ *
+ * WHY `explore` AND `search` EXIST AS THEIR OWN CATEGORIES.
+ *
+ * Both used to fall through to `other`, and the comment here used to justify
+ * that by saying we "cannot tell which from a URL". That was true of the
+ * bucket, not of its contents — Explore and a search results page have their
+ * own routes on every platform, and both were being discarded from the ratio
+ * only because nothing was reading those routes. The honest fix was to read
+ * them, not to keep declining to classify. This shrinks `other` and moves real
+ * time into `classified`, which is the only denominator the headline uses.
+ *
+ * Note the direction is not self-serving: `search` lands on the intentional
+ * side and so pushes the algorithmic percentage DOWN. A change that could only
+ * ever inflate the number the product is arguing about would not be worth
+ * making.
  */
 export const CATEGORY_KIND: Record<Category, CategoryKind> = {
   messages: 'intentional',
   video: 'intentional',
+  search: 'intentional',
   feed: 'algorithmic',
   reels: 'algorithmic',
+  explore: 'algorithmic',
   other: 'unclassified',
 };
 
@@ -375,6 +456,11 @@ export function formatHour(h: number): string {
   if (hour === 0) return 'midnight';
   if (hour === 12) return 'noon';
   return hour < 12 ? `${hour}am` : `${hour - 12}pm`;
+}
+
+/** '10pm–2am'. The shared spelling of a local-hour window. */
+export function formatHourRange(startHour: number, endHour: number): string {
+  return `${formatHour(startHour)}–${formatHour(endHour)}`;
 }
 
 /** The Rhythm headline. Observational — states the pattern, asks for nothing. */

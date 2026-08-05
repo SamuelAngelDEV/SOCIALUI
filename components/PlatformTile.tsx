@@ -4,18 +4,22 @@ import { Typography } from '@/constants/typography';
 import { Radii, Shadow, Spacing } from '@/constants/spacing';
 import { Strings } from '@/constants/strings';
 import { PlatformConfig } from '@/constants/platforms';
+import { IconChip, Pill } from '@/components/ui';
 import { PlatformLogo } from './PlatformLogo';
 
 type Props = {
   platform: PlatformConfig;
-  width: number;
+  /** Omitted for the wide hero tile, which stretches instead. */
+  width?: number;
   comingSoon?: boolean;
   todayMs?: number;
   activeCount?: number;
+  /** The wide variant: logo and text sit on one row with the figure trailing. */
+  wide?: boolean;
+  /** 0..1 share of today's total, drawn as a hairline meter on the wide tile. */
+  share?: number;
   onPress: () => void;
 };
-
-const LOGO_SIZE = 48;
 
 function formatMs(ms: number): string {
   const min = Math.round(ms / 60000);
@@ -26,58 +30,104 @@ function formatMs(ms: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+/**
+ * A home-grid tile.
+ *
+ * Two variants, which is what makes the grid a bento rather than a matrix: the
+ * app you actually used today gets a wide tile carrying its figure inline, and
+ * everything else sits in the two-column run below it. A uniform grid gives
+ * every app equal weight regardless of whether it took four minutes or four
+ * hours, which throws away the one thing the home screen knows.
+ *
+ * The badges moved from a sticker hanging off the logo's corner to a proper
+ * pill on the opposite side. The old placement collided with the logo at small
+ * sizes and needed three off-grid optical offsets to sit right.
+ */
 export function PlatformTile({
   platform,
   width,
   comingSoon,
   todayMs,
   activeCount,
+  wide,
+  share,
   onPress,
 }: Props) {
   const blockOnly = platform.kind === 'block-only';
   const hasTime = todayMs !== undefined && todayMs > 0;
 
+  const badge = comingSoon
+    ? { label: Strings.platformTile.soon, tone: 'quiet' as const }
+    : blockOnly
+      ? { label: Strings.platformTile.blockOnly, tone: 'quiet' as const }
+      : platform.beta
+        ? { label: Strings.platformTile.beta, tone: 'brand' as const }
+        : null;
+
+  const sub = comingSoon
+    ? Strings.platformTile.comingSoon
+    : hasTime
+      ? Strings.platformTile.timeToday(formatMs(todayMs))
+      : activeCount
+        ? Strings.platformTile.filtersActive(activeCount)
+        : null;
+
+  if (wide) {
+    return (
+      <Pressable
+        style={[styles.tile, styles.wideTile, comingSoon && styles.tileDimmed]}
+        onPress={onPress}
+        accessibilityRole="button"
+      >
+        <View style={styles.wideRow}>
+          <IconChip size={52} tint={Colors.groupedBackground}>
+            <PlatformLogo platform={platform.id} size={34} />
+          </IconChip>
+          <View style={styles.wideText}>
+            <Text style={Typography.headline}>{platform.name}</Text>
+            {activeCount ? (
+              <Text style={[Typography.callout, styles.subText]}>
+                {Strings.platformTile.filtersActive(activeCount)}
+              </Text>
+            ) : null}
+          </View>
+          <View style={styles.wideFigure}>
+            <Text style={Typography.figureLG}>{formatMs(todayMs ?? 0)}</Text>
+            <Text style={[Typography.callout, styles.subText]}>today</Text>
+          </View>
+        </View>
+
+        {/* A meter, not a chart. It answers one question — how much of today
+            was this app — and answers it without a legend or an axis. */}
+        {share !== undefined && share > 0 && (
+          <View style={styles.meterTrack}>
+            <View
+              style={[styles.meterFill, { width: `${Math.max(2, Math.min(1, share) * 100)}%` }]}
+            />
+          </View>
+        )}
+      </Pressable>
+    );
+  }
+
   return (
     <Pressable
       style={[styles.tile, { width }, comingSoon && styles.tileDimmed]}
       onPress={onPress}
+      accessibilityRole="button"
     >
       <View style={styles.topRow}>
-        <PlatformLogo platform={platform.id} size={LOGO_SIZE} />
-        {!comingSoon && platform.beta && (
-          <View style={styles.betaBadge}>
-            <Text style={Typography.badge}>{Strings.platformTile.beta}</Text>
-          </View>
-        )}
-        {!comingSoon && blockOnly && (
-          <View style={styles.blockBadge}>
-            <Text style={Typography.badge}>{Strings.platformTile.blockOnly}</Text>
-          </View>
-        )}
-        {comingSoon && (
-          <View style={styles.comingSoonBadge}>
-            <Text style={Typography.badge}>{Strings.platformTile.soon}</Text>
-          </View>
-        )}
+        <IconChip size={44} tint={Colors.groupedBackground}>
+          <PlatformLogo platform={platform.id} size={28} />
+        </IconChip>
+        {badge && <Pill label={badge.label} tone={badge.tone} />}
       </View>
 
       <View style={styles.info}>
-        <Text style={[Typography.headline, comingSoon && styles.dimmedText]}>
+        <Text style={[Typography.tileLabel, comingSoon && styles.dimmedText]}>
           {platform.name}
         </Text>
-        {!comingSoon && hasTime && (
-          <Text style={styles.statText}>
-            {Strings.platformTile.timeToday(formatMs(todayMs))}
-          </Text>
-        )}
-        {!comingSoon && !hasTime && activeCount !== undefined && activeCount > 0 && (
-          <Text style={styles.statText}>
-            {Strings.platformTile.filtersActive(activeCount)}
-          </Text>
-        )}
-        {comingSoon && (
-          <Text style={styles.statText}>{Strings.platformTile.comingSoon}</Text>
-        )}
+        {sub && <Text style={[Typography.callout, styles.subText]}>{sub}</Text>}
       </View>
     </Pressable>
   );
@@ -92,44 +142,48 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     ...Shadow.card,
   },
+  wideTile: {
+    alignSelf: 'stretch',
+    width: '100%',
+    padding: Spacing.xl,
+  },
+  wideRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.lg,
+  },
+  wideText: {
+    flex: 1,
+    gap: 2,
+  },
+  wideFigure: {
+    alignItems: 'flex-end',
+    gap: 0,
+  },
+  meterTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.groupedBackground,
+    marginTop: Spacing.lg,
+    overflow: 'hidden',
+  },
+  meterFill: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.primaryLine,
+  },
   topRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
     marginBottom: 14,
   },
   info: {
     gap: 2,
   },
-  statText: {
-    ...Typography.callout,
+  subText: {
     color: Colors.textTertiary,
-  },
-  // Badge offsets are optical: the sticker hangs off the logo's bottom-left corner,
-  // so these stay off-grid literals rather than becoming spacing tokens.
-  betaBadge: {
-    position: 'absolute',
-    bottom: -6,
-    left: -6,
-    backgroundColor: Colors.badgeRed,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: Radii.badge,
-  },
-  blockBadge: {
-    position: 'absolute',
-    bottom: -6,
-    left: -14,
-    backgroundColor: Colors.accentGold,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: Radii.badge,
-  },
-  comingSoonBadge: {
-    position: 'absolute',
-    bottom: -6,
-    left: -6,
-    backgroundColor: Colors.textTertiary,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: Radii.badge,
   },
   tileDimmed: {
     opacity: 0.85,

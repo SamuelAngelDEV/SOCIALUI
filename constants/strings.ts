@@ -47,7 +47,12 @@ export const Strings = {
       sleep: 'Sleep — I stay up later than I meant to',
       focus: 'Focus — it breaks up work or study',
       presence: 'Time with people who are actually there',
-      mood: 'I feel worse after than before',
+      // The `mood` id is kept for a label that no longer mentions mood. Naming
+      // the comparison instead of the feeling makes the answer observable
+      // ("I did that today") rather than a self-assessment, and it points at
+      // the mechanism: counts are what a comparison is run on, which is exactly
+      // what this answer turns off in `recommendMode`.
+      mood: 'Comparing myself to everyone else',
       time: 'Nothing specific. Just the time.',
       timeNote: 'Fine. Time is the one thing here we can measure without guessing.',
     },
@@ -104,6 +109,30 @@ export const Strings = {
       stop: 'Stop opening it without meaning to',
     },
 
+    /**
+     * The app picker. Two questions in one screen, in this order on purpose:
+     * which apps are yours, then which of those you want changed.
+     *
+     * "Just track it" is a first-class answer, not a soft no. Someone who
+     * doesn't yet know what they want blocked should be able to say so and get
+     * a real number in a week — which is the honest way to decide. Offering
+     * only "restrict" would push people into blocking things they hadn't
+     * decided about, and the ones they got wrong are what makes a blocker get
+     * deleted.
+     */
+    apps: {
+      title: 'Which of these are yours?',
+      subtitle: 'Pick the ones you actually open.',
+      restrict: 'Restrict',
+      track: 'Just track',
+      restrictNote: 'Feed, Reels and the rest come out.',
+      trackNote: 'Nothing changes. Time still gets counted.',
+      blockOnly: "Can't be changed from the inside — we explain why.",
+      comingSoon: 'Not ready yet.',
+      /** Shown when nothing is selected, so the Next button's state is explained. */
+      needOne: 'Pick at least one to carry on.',
+    },
+
     presets: {
       title: "Here's where to start",
       subtitle: 'Based on what you kept. Change it anytime in Settings.',
@@ -151,12 +180,10 @@ export const Strings = {
      * decide things", given before it decides anything.
      */
     learningTitle: (since: string) => `Counting since ${since}.`,
-    learningBody:
-      "Nothing here is a guess, so each line turns on only once there's enough of your own data behind it.",
-    learningFirstDay:
-      "Counting from today. Open a platform and it starts; there's nothing to show until it does.",
+    learningBody: 'Each line turns on when there’s enough of your data behind it.',
+    learningFirstDay: 'Counting from today. Open an app and it starts.',
     unlockSplit: 'Where your time goes',
-    unlockRhythm: 'Your rhythm',
+    unlockRhythm: 'When it happens',
     unlockTrend: 'Compared to your first week',
     unlockReady: 'ready',
     unlockDays: (n: number) => `${n} more day${n === 1 ? '' : 's'}`,
@@ -168,11 +195,57 @@ export const Strings = {
     stillComing: 'Still counting',
 
     /** The headline. `splitByKind` supplies the percentage; `other` is excluded. */
-    splitHeadline: 'of your time this week was chosen for you.',
+    splitEyebrow: 'Where it went',
+    weekEyebrow: 'This week',
+    /**
+     * Defines the two words rather than arguing for them.
+     *
+     * This replaced "Screen Time tells you which app. This tells you which
+     * part of it — the feed the algorithm chose, versus the message you came
+     * to answer." That sentence made the case for the idea; it never said what
+     * the labels on the chart actually mean. Naming the surfaces teaches the
+     * vocabulary in one line, and the chart below is then readable.
+     */
     splitBody:
-      'Feeds and reels are ranked by an algorithm. Messages and the videos you open are not.',
+      'Feed, Reels and Explore are picked by an algorithm. Messages, Search and Video are picked by you.',
+    /** Reads directly after the figure: "62" + " % algorithmic". */
+    splitUnit: '% algorithmic',
+    splitHeadline: 'of your time this week was chosen for you.',
     splitUnclassified: (amount: string) =>
-      `${amount} was profiles, search and notifications. That mixes both, so it stays out of the percentage rather than being assigned to a side.`,
+      `${amount} on profiles and notifications, left out of the split.`,
+    /**
+     * Names its own window. The percentage above is the calendar week, which is
+     * short mid-week; a yearly projection off a half-finished week would be a
+     * different number pretending to be the same one. This reads the rolling
+     * seven days and says so.
+     */
+    splitHorizon: (span: string) =>
+      `At the last seven days' pace, that's ${span} a year of feed you didn't choose.`,
+    /**
+     * The idea, before there is any data to apply it to. Shown on first open so
+     * the real percentage lands in a frame the user already holds.
+     */
+    splitExample:
+      'A message from a friend, or a video you went looking for, is time you chose. A feed or a reel is time a ranking model chose for you. Both count as time on your phone — only one of them was your idea.',
+
+    /**
+     * DAY ONE — THEIR OWN GUESS, PROJECTED.
+     *
+     * There is no measured data on first open, so this is arithmetic on the
+     * number they gave us in onboarding Q2 and nothing else. The rule it has to
+     * keep: it must never read like a measurement. `estimateEyebrow` names it as
+     * theirs *above* the figure rather than in a footnote below it, and
+     * app/insights.tsx renders it in a deliberately quieter register than
+     * ReclaimedCard. A guess that looks like a fact is the same failure this
+     * screen avoids everywhere else, just in a new place.
+     */
+    estimateEyebrow: 'From your own estimate',
+    estimateFigure: (span: string, atLeast: boolean) => (atLeast ? `at least ${span}` : span),
+    estimateSub: 'a year, if that holds.',
+    estimateSaid: (phrase: string) => `You said ${phrase} a day.`,
+    estimateHorizon: (years: number, span: string) => `Over ${years} years that's ${span}.`,
+    estimateDisclaimer:
+      'Your figure, not a measurement — we haven’t counted anything yet. Once there are a few days of real data, this is replaced by what actually happened.',
 
     weekTotal: 'this week',
     weekDelta: (amount: string, direction: 'down' | 'up') =>
@@ -187,10 +260,11 @@ export const Strings = {
      * and that we haven't verified it — it is their claim on the screen, not
      * ours.
      */
-    rhythmStated: (window: string) =>
-      `You said it usually gets away from you ${window}. We'll confirm or correct that once there are a few days of data.`,
+    /** The eyebrow above the finding. Replaced "Rhythm", which meant nothing. */
+    rhythmEyebrow: 'When it happens',
+    rhythmStated: (window: string) => `You said ${window}. We'll check that.`,
     rhythmEvidence: (days: number) =>
-      `From your last ${days} day${days === 1 ? '' : 's'} with activity. Worth knowing, that's all.`,
+      `From ${days} day${days === 1 ? '' : 's'} of activity.`,
 
     /** Compares onboarding's Q2 guess to the first week actually measured. */
     guessVsMeasured: (guess: string, measured: string) =>
@@ -297,6 +371,63 @@ export const Strings = {
     waitCooldown: (seconds: number) => `Wait ${seconds}s...`,
   },
 
+  /**
+   * SESSION SUMMARY — shown once, on the way out.
+   *
+   * The only moment the user is already stopping, which is the only moment a
+   * number lands without nagging. Everything here is descriptive: it names the
+   * surfaces the session touched and which side of the split they fall on. It
+   * never says the session was too long, and it never congratulates anyone for
+   * closing the app — the same rule utils/reclaimed.ts enforces on the weekly
+   * figures applies to the one that shows up most often.
+   *
+   * The `verdict*` lines are observations about the time, not about the person.
+   */
+  session: {
+    eyebrow: 'This session',
+    on: (platformName: string) => `on ${platformName}`,
+    /** One line, under the bars. Set in Newsreader italic — never a paragraph. */
+    verdictAlgorithmic: 'Most of that was chosen for you.',
+    verdictIntentional: 'Most of that was yours to choose.',
+    verdictEven: 'About an even split between the two.',
+    /** Surfaces a pathname couldn't identify — reported, never folded into either side. */
+    unclassified: (total: string) => `${total} on pages we don't classify.`,
+    today: (total: string) => `${total} across all apps today.`,
+    done: 'Done',
+  },
+
+  /**
+   * DELAYED DISABLE — the wait between asking to weaken a protection and it
+   * applying. See utils/commitment.ts for the mechanism.
+   *
+   * Beyond stating the wait, this copy has one job: making unmistakably clear
+   * that this is not a lock. Every surface that mentions the delay also says
+   * that opening an app is unaffected — because a user who believes they have
+   * been locked out of their own phone will delete the app rather than wait,
+   * and they would be right to.
+   */
+  commitment: {
+    pending: (remaining: string) => `Turns off in ${remaining}`,
+    keepOn: 'Keep it on',
+    groupTitle: 'Turning protections off',
+    /** One clause. The mechanism moved behind the info tap. */
+    groupFooter: 'Turning something on is instant. Opening an app is never affected.',
+    rowLabel: 'Wait before it applies',
+    immediate: 'Applies immediately',
+    hours: (n: number) => `${n} hour${n === 1 ? '' : 's'}`,
+    pendingDelay: (value: string, remaining: string) =>
+      `Changing to ${value} in ${remaining}`,
+  },
+
+  /**
+   * BACKGROUND THEMES. Purely decorative, and the copy says so — the footer
+   * exists to head off the reasonable assumption that a theme does something.
+   */
+  themes: {
+    groupTitle: 'Background',
+    groupFooter: 'Decoration only. Nothing it blocks or counts changes.',
+  },
+
   settingsRow: {
     alwaysOn: 'Always On',
     hideButtonToo: 'Hide Button Too',
@@ -310,5 +441,40 @@ export const Strings = {
 
   feedLimitSlider: {
     label: 'Posts before it stops',
+  },
+
+  /**
+   * QUIET HOURS — the window the user asked to be kept out of.
+   *
+   * Two rules run through this copy. First, it never claims an outcome: the
+   * window is something the user set, and nothing here says what it achieved
+   * (see utils/reclaimed.ts). Second, the way out is always visible and always
+   * stated. Friction is the mechanism — a wall with no door is a different
+   * product, and one this app argues against.
+   */
+  quietHours: {
+    title: 'Your quiet hours',
+    body: (platformName: string, window: string) =>
+      `You asked to be kept off ${platformName} ${window}.`,
+    fromRhythm: 'You set this from your own measured pattern.',
+    done: "I'm done",
+    openAnyway: 'Open anyway',
+    waitCooldown: (seconds: number) => `Wait ${seconds}s…`,
+    /** Home-tile marker while the window is open. */
+    tileBadge: 'QUIET',
+
+    /** The Insights call to action, shown under a Rhythm finding. */
+    ctaTitle: 'Close this window',
+    ctaBody: (window: string) => `Keep yourself out ${window}. You can still open anyway.`,
+    ctaButton: (window: string) => `Turn on for ${window}`,
+    ctaActive: (window: string) => `Quiet hours are on, ${window}.`,
+    ctaTurnOff: 'Turn off',
+
+    settingsTitle: 'Quiet hours',
+    settingsSubtitle: 'A daily window. Nothing is locked.',
+    settingsOff: 'Off',
+    settingsOn: (window: string) => `On, ${window}`,
+    settingsStart: 'From',
+    settingsEnd: 'Until',
   },
 } as const;

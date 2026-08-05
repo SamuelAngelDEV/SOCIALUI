@@ -1,20 +1,23 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BarChart3, ChevronRight, Settings as SettingsIcon, Shield } from 'lucide-react-native';
+import { BarChart3, ChevronRight, MoonStar, Settings as SettingsIcon, Shield } from 'lucide-react-native';
 import { PLATFORM_LIST, PlatformConfig, PlatformId } from '@/constants/platforms';
 import { COMING_SOON, FEATURES } from '@/constants/features';
 import { Colors } from '@/constants/colors';
 import { Typography } from '@/constants/typography';
+import { Spacing } from '@/constants/spacing';
 import { Strings } from '@/constants/strings';
 import { PlatformTile } from '@/components/PlatformTile';
+import { Card, IconChip, NoticeRow, Pill, SectionLabel, StatTile } from '@/components/ui';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useStatsStore } from '@/store/statsStore';
-import { dayKey, weekKey } from '@/utils/stats';
+import { dayKey, formatHourRange, splitByKind, weekKey } from '@/utils/stats';
+import { isWithinWindow, nextBoundary } from '@/utils/schedule';
 
 const SCREEN_MARGIN = 16;
-const GRID_GAP = 16;
+const GRID_GAP = 12;
 
 function formatMs(ms: number): string {
   const min = Math.round(ms / 60000);
@@ -44,6 +47,7 @@ export default function Home() {
   const hydrated = useSettingsStore((s) => s._hasHydrated);
   const onboarded = useSettingsStore((s) => s.onboarded);
   const allSettings = useSettingsStore((s) => s.platformSettings);
+  const platformInUse = useSettingsStore((s) => s.platformInUse);
 
   useEffect(() => {
     if (hydrated && !onboarded) {
@@ -67,14 +71,75 @@ export default function Home() {
   const todayTotal = today?.total ?? 0;
   const todayPlatforms = today?.platforms ?? {};
 
-  const totalActiveFilters = PLATFORM_LIST.filter(
-    (p) => !COMING_SOON.includes(p.id)
-  ).reduce((sum, p) => sum + countActiveFeatures(p.id, allSettings[p.id] ?? {}), 0);
+  // Quiet hours are surfaced here but NOT enforced here. Opening a platform
+  // still navigates; the wall (and the only "open anyway" path) lives on the
+  // platform screen. One wall in one place beats a dead tile the user can't get
+  // past and a second override UI to keep in sync.
+  const quietHours = useSettingsStore((s) => s.quietHours);
+  const [quietNow, setQuietNow] = useState(false);
+  useEffect(() => {
+    if (!quietHours.enabled) {
+      setQuietNow(false);
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const evaluate = () => {
+      setQuietNow(isWithinWindow(new Date(), quietHours));
+      const ms = nextBoundary(new Date(), quietHours);
+      if (ms !== null) timer = setTimeout(evaluate, ms + 1000);
+    };
+    evaluate();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quietHours.enabled, quietHours.startHour, quietHours.endHour]);
+
+  /*
+   * Only the apps the user claimed in onboarding. An install predating the
+   * picker has every flag true, so it sees exactly what it saw before.
+   */
+  const visiblePlatforms = PLATFORM_LIST.filter((p) => platformInUse[p.id] !== false);
+
+  // Counted over visible apps only — a filter armed on an app the user has said
+  // isn't theirs is not protecting them from anything.
+  const totalActiveFilters = visiblePlatforms
+    .filter((p) => !COMING_SOON.includes(p.id))
+    .reduce((sum, p) => sum + countActiveFeatures(p.id, allSettings[p.id] ?? {}), 0);
 
   const openReport = () => {
     markWeeklyShown(thisWeek);
     router.push('/insights');
   };
+
+  /*
+   * The hero is the app that took the most time TODAY, and only if it took any.
+   * On a fresh day there is no hero and the grid is uniform — promoting an app
+   * with no data would be inventing a ranking, and the layout would flip around
+   * for no reason the user could see.
+   */
+  const hero = (() => {
+    let best: PlatformConfig | null = null;
+    let bestMs = 0;
+    for (const p of visiblePlatforms) {
+      if (COMING_SOON.includes(p.id)) continue;
+      const ms = todayPlatforms[p.id] ?? 0;
+      if (ms > bestMs) {
+        best = p;
+        bestMs = ms;
+      }
+    }
+    return best;
+  })();
+
+  const gridPlatforms = visiblePlatforms.filter((p) => p.id !== hero?.id);
+
+  // Today's split, for the one line under the headline figure.
+  const todayAlgorithmicPct = (() => {
+    if (!today) return null;
+    const share = splitByKind(today.categories).algorithmicShare;
+    return share === null ? null : Math.round(share * 100);
+  })();
 
   const openPlatform = (platform: PlatformConfig) => {
     if (COMING_SOON.includes(platform.id)) return;
@@ -86,67 +151,125 @@ export default function Home() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 24 }]}>
+    <View style={[styles.container, { paddingTop: insets.top + Spacing.xl }]}>
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerText}>
           <Text style={Typography.statement}>{Strings.app.name}</Text>
           <Text style={[Typography.callout, styles.subtitle]}>{Strings.app.tagline}</Text>
         </View>
+        {/* Icon chips rather than bare glyphs: they give the two controls a
+            shape, which is what stops the header reading as a toolbar. */}
         <View style={styles.headerIcons}>
-          <Pressable onPress={() => router.push('/insights')} hitSlop={12}>
-            <BarChart3 size={22} color={Colors.textSecondary} />
+          <Pressable onPress={() => router.push('/insights')} hitSlop={10}>
+            <IconChip size={40}>
+              <BarChart3 size={19} color={Colors.primary} />
+            </IconChip>
           </Pressable>
-          <Pressable onPress={() => router.push('/settings')} hitSlop={12}>
-            <SettingsIcon size={22} color={Colors.textSecondary} />
+          <Pressable onPress={() => router.push('/settings')} hitSlop={10}>
+            <IconChip size={40}>
+              <SettingsIcon size={19} color={Colors.primary} />
+            </IconChip>
           </Pressable>
         </View>
       </View>
 
-      {reportReady && (
-        <Pressable style={styles.reportBanner} onPress={openReport}>
-          <Text style={[Typography.headline, { color: Colors.primary }]}>
-            Your weekly report is ready
-          </Text>
-          <ChevronRight size={18} color={Colors.primary} />
-        </Pressable>
-      )}
-
-      <View style={styles.statusCard}>
-        <View style={styles.statusRow}>
-          <View style={styles.statusItem}>
-            <Text style={styles.statusValue}>
-              {todayTotal > 0 ? formatMs(todayTotal) : '0m'}
-            </Text>
-            <Text style={styles.statusLabel}>today</Text>
-          </View>
-          <View style={styles.statusDivider} />
-          <View style={styles.statusItem}>
-            <View style={styles.statusValueRow}>
-              <Shield size={16} color={Colors.primary} />
-              <Text style={styles.statusValue}>{totalActiveFilters}</Text>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + Spacing.xxl }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/*
+          ONE card carrying today, instead of a stat strip plus two stacked
+          banners. The banners were the main source of the "half the page is
+          blank" problem: three full-width blocks each holding one short
+          sentence, pushing the grid — the thing the screen is actually for —
+          below the fold.
+        */}
+        <Card style={styles.todayCard}>
+          <View style={styles.todayTop}>
+            <StatTile
+              value={todayTotal > 0 ? formatMs(todayTotal) : '0m'}
+              label="today"
+              emphasis="xl"
+            />
+            <View style={styles.todayPills}>
+              {quietNow && (
+                <Pill
+                  label={Strings.quietHours.tileBadge}
+                  leading={<MoonStar size={11} color={Colors.primary} />}
+                />
+              )}
+              <Pill
+                label={`${totalActiveFilters} filters`}
+                tone="quiet"
+                leading={<Shield size={11} color={Colors.textSecondary} />}
+              />
             </View>
-            <Text style={styles.statusLabel}>filters active</Text>
           </View>
+
+          {/* The split, if there is one to show. This is the product's whole
+              argument, and the home screen is where it is seen most often —
+              gated on the same `algorithmicShare === null` as Insights, so it
+              stays silent rather than printing a placeholder percentage. */}
+          {todayAlgorithmicPct !== null && (
+            <Text style={[Typography.callout, styles.todaySplit]}>
+              {todayAlgorithmicPct}% of that was chosen for you.
+            </Text>
+          )}
+        </Card>
+
+        {reportReady && (
+          <View style={styles.notice}>
+            <NoticeRow
+              icon={<BarChart3 size={17} color={Colors.primary} />}
+              text="Your weekly report is ready"
+              action={<ChevronRight size={17} color={Colors.primary} />}
+              onPress={openReport}
+            />
+          </View>
+        )}
+
+        {quietNow && (
+          <View style={styles.notice}>
+            <NoticeRow
+              icon={<MoonStar size={17} color={Colors.primary} />}
+              text={Strings.quietHours.ctaActive(
+                formatHourRange(quietHours.startHour, quietHours.endHour)
+              )}
+            />
+          </View>
+        )}
+
+        {/* The bento: the app that actually took time today leads at full
+            width, the rest run two-up underneath. */}
+        {hero && (
+          <View style={styles.heroWrap}>
+            <PlatformTile
+              platform={hero}
+              wide
+              todayMs={todayPlatforms[hero.id]}
+              share={todayTotal > 0 ? (todayPlatforms[hero.id] ?? 0) / todayTotal : 0}
+              activeCount={countActiveFeatures(hero.id, allSettings[hero.id] ?? {})}
+              onPress={() => openPlatform(hero)}
+            />
+          </View>
+        )}
+
+        <SectionLabel>{hero ? 'Everything else' : 'Your apps'}</SectionLabel>
+
+        <View style={styles.grid}>
+          {gridPlatforms.map((platform) => (
+            <PlatformTile
+              key={platform.id}
+              platform={platform}
+              width={tileWidth}
+              comingSoon={COMING_SOON.includes(platform.id)}
+              todayMs={todayPlatforms[platform.id]}
+              activeCount={countActiveFeatures(platform.id, allSettings[platform.id] ?? {})}
+              onPress={() => openPlatform(platform)}
+            />
+          ))}
         </View>
-      </View>
-
-      <ScrollView contentContainerStyle={styles.grid} showsVerticalScrollIndicator={false}>
-        {PLATFORM_LIST.map((platform) => (
-          <PlatformTile
-            key={platform.id}
-            platform={platform}
-            width={tileWidth}
-            comingSoon={COMING_SOON.includes(platform.id)}
-            todayMs={todayPlatforms[platform.id]}
-            activeCount={countActiveFeatures(platform.id, allSettings[platform.id] ?? {})}
-            onPress={() => openPlatform(platform)}
-          />
-        ))}
       </ScrollView>
-
-      <Text style={[Typography.callout, styles.footer, { paddingBottom: insets.bottom + 20 }]}>
-        Change your relationship with your phone.
-      </Text>
     </View>
   );
 }
@@ -154,78 +277,62 @@ export default function Home() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    // Transparent so ThemeBackground shows through. The ground is owned by
+    // app/_layout.tsx, once, rather than by each screen.
+    backgroundColor: 'transparent',
     paddingHorizontal: SCREEN_MARGIN,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 24,
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginBottom: Spacing.xl,
+  },
+  headerText: {
+    flex: 1,
   },
   subtitle: {
     marginTop: 2,
   },
   headerIcons: {
     flexDirection: 'row',
-    gap: 20,
+    gap: Spacing.sm,
     alignItems: 'center',
   },
-  statusCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingVertical: 18,
-    paddingHorizontal: 24,
-    marginBottom: 20,
+  scroll: {
+    paddingBottom: Spacing.xxl,
   },
-  statusRow: {
+  todayCard: {
+    marginBottom: Spacing.md,
+  },
+  todayTop: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statusItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statusDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: Colors.separator,
-  },
-  statusValue: {
-    ...Typography.title,
-    color: Colors.textPrimary,
-  },
-  statusValueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  statusLabel: {
-    ...Typography.callout,
-    color: Colors.textTertiary,
-    marginTop: 2,
-  },
-  reportBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    backgroundColor: Colors.primarySubtle,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    marginBottom: 16,
+    gap: Spacing.md,
+  },
+  todayPills: {
+    alignItems: 'flex-end',
+    gap: Spacing.xs,
+    paddingTop: Spacing.sm,
+  },
+  todaySplit: {
+    marginTop: Spacing.lg,
+    paddingTop: Spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: Colors.separator,
+    color: Colors.textSecondary,
+  },
+  notice: {
+    marginBottom: Spacing.md,
+  },
+  heroWrap: {
+    marginBottom: Spacing.xl,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: GRID_GAP,
-  },
-  footer: {
-    textAlign: 'center',
-    paddingTop: 20,
-    color: Colors.textTertiary,
   },
 });
