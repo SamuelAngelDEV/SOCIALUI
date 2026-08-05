@@ -256,6 +256,55 @@ const week = (n, msPerDay, daysCount = 7) => {
   ok('rate helper: 0 -> 0', R.msPerWeekToDaysPerYear(0) === 0);
 }
 
+// ---------- 17. shareOfYear ----------
+{
+  // A full day every day is the whole year.
+  ok('24h/day is 100% of the year', Math.abs(R.shareOfYear(365.25) - 1) < 0.001,
+    R.shareOfYear(365.25));
+  ok('shareOfYear: 0 -> 0', R.shareOfYear(0) === 0);
+  // 45.6 days a year, SocialLite's own worked example, is ~12.5%.
+  const pct = R.shareOfYear(45.6) * 100;
+  ok('45.6 days a year is ~12.5% of it', Math.abs(pct - 12.5) < 0.1, pct);
+}
+
+// ---------- 18. remainingYears ----------
+{
+  ok('age 20 leaves 60', R.remainingYears(20) === 60, R.remainingYears(20));
+  ok('age 79 leaves 1', R.remainingYears(79) === 1);
+  // Gated rather than clamped: a missing or absurd age must produce NO figure,
+  // because the alternative is inventing the input to the biggest number on the
+  // screen.
+  ok('no age -> null', R.remainingYears(undefined) === null);
+  ok('NaN -> null', R.remainingYears(NaN) === null);
+  ok('a toddler -> null', R.remainingYears(2) === null);
+  ok('past life expectancy -> null', R.remainingYears(95) === null);
+  ok('exactly life expectancy -> 0', R.remainingYears(80) === 0);
+}
+
+// ---------- 19. project ----------
+{
+  // 3h/day is SocialLite's worked example: 45.6 days a year, 12.5% of it.
+  const p = R.project(3 * HOUR, 14);
+  ok('3h/day is ~45.6 days a year', Math.abs(p.daysPerYear - 45.6) < 0.2, p.daysPerYear);
+  ok('…which is ~12.5% of the year', Math.abs(p.yearShare - 0.125) < 0.002, p.yearShare);
+  ok('carries the input back', p.msPerDay === 3 * HOUR);
+  // 66 remaining years at 45.6 days each is ~3010 days, matching their figure.
+  ok('66 remaining years is ~3010 days',
+    Math.abs(p.daysPerLifetime - 3010) < 20, p.daysPerLifetime);
+  ok('remaining years reported', p.lifetimeYears === 66);
+
+  const noAge = R.project(3 * HOUR);
+  ok('no age -> no lifetime figure', noAge.daysPerLifetime === null);
+  ok('no age -> no remaining years', noAge.lifetimeYears === null);
+  // The 10-year horizon must still be there when the lifetime one is refused,
+  // so the screen is never blank for want of an age.
+  ok('horizon survives a missing age', noAge.daysPerHorizon > 0, noAge.daysPerHorizon);
+
+  const zero = R.project(0, 30);
+  ok('zero use projects to zero', zero.daysPerYear === 0);
+  ok('zero use has a zero lifetime figure', zero.daysPerLifetime === 0);
+}
+
 console.log('');
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

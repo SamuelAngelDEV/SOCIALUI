@@ -44,8 +44,8 @@ export const Strings = {
     cost: {
       title: "What's it actually costing you?",
       subtitle: "Pick anything you've noticed. This decides where we start.",
-      sleep: 'Sleep — I stay up later than I meant to',
-      focus: 'Focus — it breaks up work or study',
+      sleep: 'Sleep. I stay up later than I meant to',
+      focus: 'Focus. It breaks up work or study',
       presence: 'Time with people who are actually there',
       // The `mood` id is kept for a label that no longer mentions mood. Naming
       // the comparison instead of the feeling makes the answer observable
@@ -62,6 +62,31 @@ export const Strings = {
      * skip: most people genuinely don't know, and pretending otherwise makes the
      * first weekly report feel like an accusation rather than news.
      */
+    /**
+     * The calculator. Q2 is a slider rather than a five-option list, because a
+     * number that moves as you drag lands in a way a radio button cannot.
+     *
+     * The one line this screen must never carry is SocialLite's: "we could help
+     * you save all of this time." That is the counterfactual utils/reclaimed.ts
+     * exists to refuse, and it would be a promise made before a single minute
+     * has been measured. The number is the user's own arithmetic, and the copy
+     * says exactly that.
+     */
+    calc: {
+      title: 'How long a day, roughly?',
+      subtitle: 'Drag it. We measure the real number either way.',
+      perDay: 'a day',
+      daysPerYear: (span: string) => `${span} a year`,
+      yearShare: (pct: number) => `${pct}% of your entire year`,
+      horizon: (years: number, span: string) => `${span} over ${years} years`,
+      lifetime: (span: string, years: number) =>
+        `${span} of your remaining ${years} years`,
+      ageLabel: 'Your age',
+      ageSkip: 'Add your age for the lifetime figure',
+      /** The honesty line. Never "we will fix this". */
+      caveat: 'Your estimate, not a measurement. Nothing is counted yet.',
+    },
+
     amount: {
       title: 'How long do you think you spend a day?',
       subtitle: 'A guess is fine. We measure the real number either way.',
@@ -81,7 +106,7 @@ export const Strings = {
       work: 'During work or class',
       evening: 'Evening on the couch',
       night: 'Late at night in bed',
-      unsure: 'Not sure — find it for me',
+      unsure: 'Not sure, find it for me',
       unsureNote: "We'll watch for a few days and tell you.",
     },
 
@@ -93,7 +118,7 @@ export const Strings = {
       title: 'What do you actually want to keep?',
       subtitle: 'These stay working. Everything else is fair game.',
       messages: 'Messages and DMs',
-      search: 'Search — looking things up',
+      search: 'Search, looking things up',
       subs: 'Subscriptions and people I follow',
       posting: 'Posting my own stuff',
       nothing: 'Nothing. I want out for a while',
@@ -127,7 +152,7 @@ export const Strings = {
       track: 'Just track',
       restrictNote: 'Feed, Reels and the rest come out.',
       trackNote: 'Nothing changes. Time still gets counted.',
-      blockOnly: "Can't be changed from the inside — we explain why.",
+      blockOnly: "Can't be changed from the inside. We explain why.",
       comingSoon: 'Not ready yet.',
       /** Shown when nothing is selected, so the Next button's state is explained. */
       needOne: 'Pick at least one to carry on.',
@@ -329,7 +354,7 @@ export const Strings = {
     subtitle: 'Tests the blockers against the live site. Screenshot results.',
     waiting: (platformName: string) =>
       `Loading ${platformName} and counting… first report in ~5s.`,
-    measuredOn: (path: string) => `Measured on ${path} — `,
+    measuredOn: (path: string) => `Measured on ${path}. `,
     allFound: 'every selector found its target.',
     misses: (count: number) =>
       `${count} selector${count === 1 ? '' : 's'} found nothing (red).`,
@@ -344,7 +369,7 @@ export const Strings = {
       "iOS won't let us change Snapchat's screen the way we change Instagram or YouTube, so we can't hide just Spotlight, Snap Score, or Quick Add.",
     whatsNext:
       'What we can do — once app blocking is ready — is help you step away from Snapchat entirely on a schedule you set. The surgical version is coming to Android first.',
-    comingSoon: 'Block Snapchat — coming soon',
+    comingSoon: 'Block Snapchat, coming soon',
     close: 'Close',
   },
 

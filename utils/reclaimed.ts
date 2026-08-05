@@ -258,5 +258,73 @@ export function projectFromEstimate(band: EstimateBand): EstimateProjection | nu
   };
 }
 
+// ── The calculator ────────────────────────────────────────────────────────────
+
+/**
+ * What a yearly figure is as a fraction of the year, 0..1.
+ *
+ * "45 days a year" is abstract; "12% of your entire year" is not. Same number,
+ * and the second one is the sentence people repeat.
+ */
+export function shareOfYear(daysPerYear: number): number {
+  return daysPerYear / DAYS_PER_YEAR;
+}
+
+/**
+ * Life expectancy used for the remaining-years figure.
+ *
+ * A flat global-ish figure, deliberately not adjusted by sex or country: this
+ * is a rough scale for an "if this holds" projection, and personalising it
+ * would imply a precision the number does not have while asking the user for
+ * data the app has no reason to hold.
+ */
+export const LIFE_EXPECTANCY_YEARS = 80;
+
+/** Years left at `age`, floored at zero. `null` for a missing or absurd age. */
+export function remainingYears(age: number | undefined): number | null {
+  if (typeof age !== 'number' || !Number.isFinite(age)) return null;
+  if (age < 5 || age > LIFE_EXPECTANCY_YEARS) return null;
+  return LIFE_EXPECTANCY_YEARS - age;
+}
+
+export type Projection = {
+  msPerDay: number;
+  daysPerYear: number;
+  /** 0..1 of the calendar year. */
+  yearShare: number;
+  /** Days across HORIZON_YEARS. */
+  daysPerHorizon: number;
+  /**
+   * Days across the user's remaining life, or `null` when no age was given.
+   *
+   * Gated rather than assumed. Guessing an age to produce a bigger number would
+   * be inventing the input to the most dramatic figure on the screen, which is
+   * exactly the move this file exists to refuse.
+   */
+  daysPerLifetime: number | null;
+  lifetimeYears: number | null;
+};
+
+/**
+ * Project a daily figure out. The arithmetic behind the calculator.
+ *
+ * Takes ms/day rather than a band, so a slider can drive it directly. This is
+ * the same shape `projectFromEstimate` returns for the onboarding guess, and it
+ * carries the same warning: a projection is not a measurement, and the UI must
+ * not render it as one.
+ */
+export function project(msPerDay: number, age?: number): Projection {
+  const daysPerYear = toDaysPerYear(msPerDay * 7);
+  const left = remainingYears(age);
+  return {
+    msPerDay,
+    daysPerYear,
+    yearShare: shareOfYear(daysPerYear),
+    daysPerHorizon: projectYears(daysPerYear),
+    daysPerLifetime: left === null ? null : daysPerYear * left,
+    lifetimeYears: left,
+  };
+}
+
 /** Today's key — re-exported so callers don't reach past this module for it. */
 export { dayKey };

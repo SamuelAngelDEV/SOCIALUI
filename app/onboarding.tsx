@@ -31,9 +31,18 @@ import { PLATFORM_LIST, PlatformConfig, PlatformId } from '@/constants/platforms
 import { COMING_SOON } from '@/constants/features';
 import { PlatformLogo } from '@/components/PlatformLogo';
 import { IconChip } from '@/components/ui';
+import Slider from '@react-native-community/slider';
+import {
+  formatLongSpan,
+  formatSpan,
+  HORIZON_YEARS,
+  project,
+} from '@/utils/reclaimed';
 import { PRESETS, recommendMode } from '@/constants/presets';
 import {
-  AMOUNT_OPTIONS,
+  // AMOUNT_OPTIONS is no longer rendered: Q2 is a slider. The `AmountAnswer`
+  // band it maps onto is still stored, because `recommendMode` and
+  // `AMOUNT_PHRASE` read it.
   AmountAnswer,
   COST_OPTIONS,
   CostAnswer,
@@ -121,6 +130,135 @@ function OptionRow({
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+/** Slider bounds for Q2, in minutes per day. */
+const CALC_MIN = 15;
+const CALC_MAX = 480;
+const CALC_STEP = 15;
+const CALC_DEFAULT = 150;
+
+/** Which `AmountAnswer` band a slider position falls in. */
+function bandFor(minutes: number): AmountAnswer {
+  if (minutes < 60) return 'under1';
+  if (minutes < 120) return 'one2';
+  if (minutes < 240) return 'two4';
+  return 'over4';
+}
+
+const formatPerDay = (minutes: number) => {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}m`;
+  return m ? `${h}h ${m}m` : `${h}h`;
+};
+
+/**
+ * Q2, as a calculator rather than a list.
+ *
+ * A number that moves while you drag lands in a way five radio buttons cannot,
+ * and it fills a screen that was otherwise five options floating in space.
+ *
+ * The figures are arithmetic on the user's OWN guess, and the caveat says so.
+ * What this screen must never say is SocialLite's closing line, "we could help
+ * you save all of this time": that is the counterfactual `utils/reclaimed.ts`
+ * exists to refuse, and it would be a promise made before a single minute has
+ * been measured.
+ */
+function CalculatorStep({
+  minutes,
+  age,
+  onMinutes,
+  onAge,
+}: {
+  minutes: number;
+  age: number | undefined;
+  onMinutes: (m: number) => void;
+  onAge: (a: number | undefined) => void;
+}) {
+  const p = project(minutes * 60_000, age);
+
+  return (
+    <>
+      <Text style={[Typography.largeTitle, styles.title]}>{COPY.calc.title}</Text>
+      <Text style={[Typography.body, styles.subtitle]}>{COPY.calc.subtitle}</Text>
+
+      <View style={styles.calcFigure}>
+        <Text style={Typography.figureXL}>{formatPerDay(minutes)}</Text>
+        <Text style={[Typography.callout, styles.calcUnit]}>{COPY.calc.perDay}</Text>
+      </View>
+
+      <Slider
+        minimumValue={CALC_MIN}
+        maximumValue={CALC_MAX}
+        step={CALC_STEP}
+        value={minutes}
+        onValueChange={onMinutes}
+        minimumTrackTintColor={Colors.primary}
+        maximumTrackTintColor={Colors.border}
+        thumbTintColor={Colors.primary}
+        style={styles.calcSlider}
+      />
+
+      <View style={styles.calcRows}>
+        <View style={styles.calcRow}>
+          <Text style={[Typography.body, styles.calcRowLabel]}>
+            {COPY.calc.daysPerYear(formatSpan(p.daysPerYear))}
+          </Text>
+          <Text style={[Typography.headline, styles.calcRowValue]}>
+            {Math.round(p.yearShare * 100)}%
+          </Text>
+        </View>
+        <Text style={[Typography.callout, styles.calcRowNote]}>
+          {COPY.calc.yearShare(Math.round(p.yearShare * 100))}
+        </Text>
+
+        <View style={styles.calcDivider} />
+
+        <Text style={[Typography.body, styles.calcRowLabel]}>
+          {COPY.calc.horizon(HORIZON_YEARS, formatLongSpan(p.daysPerHorizon))}
+        </Text>
+
+        {/* The lifetime figure is gated on an age being given. Guessing one to
+            produce a bigger number would be inventing the input to the most
+            dramatic line on the screen. */}
+        {p.daysPerLifetime !== null && p.lifetimeYears !== null ? (
+          <Text style={[Typography.body, styles.calcLifetime]}>
+            {COPY.calc.lifetime(formatLongSpan(p.daysPerLifetime), p.lifetimeYears)}
+          </Text>
+        ) : (
+          <Text style={[Typography.callout, styles.calcRowNote]}>{COPY.calc.ageSkip}</Text>
+        )}
+
+        <View style={styles.calcAgeRow}>
+          <Text style={[Typography.callout, styles.calcRowLabel]}>{COPY.calc.ageLabel}</Text>
+          <View style={styles.calcStepper}>
+            <Pressable
+              onPress={() => onAge(Math.max(13, (age ?? 25) - 1))}
+              hitSlop={8}
+              style={styles.calcStepBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Younger"
+            >
+              <Text style={Typography.headline}>-</Text>
+            </Pressable>
+            <Text style={[Typography.headline, styles.calcAgeValue]}>{age ?? '--'}</Text>
+            <Pressable
+              onPress={() => onAge(Math.min(99, (age ?? 25) + 1))}
+              hitSlop={8}
+              style={styles.calcStepBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Older"
+            >
+              <Text style={Typography.headline}>+</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+
+      <Text style={[Typography.callout, styles.calcCaveat]}>{COPY.calc.caveat}</Text>
+    </>
   );
 }
 
@@ -220,7 +358,8 @@ export default function Onboarding() {
   const { width } = useWindowDimensions();
   const [step, setStep] = useState(0);
   const [costs, setCosts] = useState<CostAnswer[]>([]);
-  const [amount, setAmount] = useState<AmountAnswer | null>(null);
+  const [minutes, setMinutes] = useState(CALC_DEFAULT);
+  const [age, setAge] = useState<number | undefined>(undefined);
   const [when, setWhen] = useState<WhenAnswer[]>([]);
   const [keeps, setKeeps] = useState<KeepAnswer[]>([]);
   const [goal, setGoal] = useState<GoalAnswer | null>(null);
@@ -236,6 +375,7 @@ export default function Onboarding() {
   const setOnboarded = useSettingsStore((s) => s.setOnboarded);
   const setCostsStore = useSettingsStore((s) => s.setCosts);
   const setTimeEstimate = useSettingsStore((s) => s.setTimeEstimate);
+  const setAgeStore = useSettingsStore((s) => s.setAge);
   const setTimeOfDay = useSettingsStore((s) => s.setTimeOfDay);
   const setKeepsStore = useSettingsStore((s) => s.setKeeps);
   const setMonthGoal = useSettingsStore((s) => s.setMonthGoal);
@@ -272,7 +412,8 @@ export default function Onboarding() {
       case 0:
         return costs.length > 0;
       case 1:
-        return amount !== null;
+        // The slider always holds a value, so there is nothing to withhold.
+        return true;
       case 2:
         return when.length > 0;
       case 3:
@@ -293,7 +434,10 @@ export default function Onboarding() {
       setCostsStore(costs);
       animateTo(1);
     } else if (step === 1) {
-      if (amount) setTimeEstimate(amount);
+      // Store both: the band still drives `recommendMode` and `AMOUNT_PHRASE`,
+      // the exact figure drives the Insights comparison.
+      setTimeEstimate(bandFor(minutes), minutes * 60_000);
+      setAgeStore(age);
       animateTo(2);
     } else if (step === 2) {
       setTimeOfDay(when);
@@ -405,24 +549,12 @@ export default function Onboarding() {
             contentContainerStyle={styles.stepContent}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={[Typography.largeTitle, styles.title]}>{COPY.amount.title}</Text>
-            <Text style={[Typography.body, styles.subtitle]}>{COPY.amount.subtitle}</Text>
-            <View style={styles.optionList}>
-              {AMOUNT_OPTIONS.map(({ id, label }) => (
-                <OptionRow
-                  key={id}
-                  label={label}
-                  multi={false}
-                  selected={amount === id}
-                  onPress={() => setAmount(id)}
-                />
-              ))}
-            </View>
-            {amount === 'unsure' && (
-              <Text style={[Typography.callout, styles.unsureNote]}>
-                {COPY.amount.unsureNote}
-              </Text>
-            )}
+            <CalculatorStep
+              minutes={minutes}
+              age={age}
+              onMinutes={setMinutes}
+              onAge={setAge}
+            />
           </ScrollView>
         )}
 
@@ -707,6 +839,83 @@ const styles = StyleSheet.create({
   },
   optionList: {
     gap: Spacing.md,
+  },
+  calcFigure: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: Spacing.sm,
+  },
+  calcUnit: {
+    color: Colors.textSecondary,
+  },
+  calcSlider: {
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xl,
+    // The track sits inside its own hit area, so a negative inset keeps it
+    // flush with the text above rather than indented by the thumb's padding.
+    marginHorizontal: -8,
+  },
+  calcRows: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.xl,
+    gap: Spacing.sm,
+  },
+  calcRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+  },
+  calcRowLabel: {
+    color: Colors.textPrimary,
+  },
+  calcRowValue: {
+    color: Colors.primary,
+  },
+  calcRowNote: {
+    color: Colors.textTertiary,
+  },
+  calcDivider: {
+    height: 1,
+    backgroundColor: Colors.separator,
+    marginVertical: Spacing.sm,
+  },
+  calcLifetime: {
+    color: Colors.primary,
+  },
+  calcAgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.separator,
+  },
+  calcStepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  calcStepBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: Radii.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calcAgeValue: {
+    minWidth: 32,
+    textAlign: 'center',
+  },
+  calcCaveat: {
+    marginTop: Spacing.lg,
+    color: Colors.textTertiary,
   },
   appRow: {
     paddingVertical: 14,

@@ -161,6 +161,17 @@ type SettingsState = {
    */
   /** Q2 — the user's own guess at a day, for the report to compare against. */
   timeEstimate?: AmountAnswer;
+  /**
+   * The exact ms/day the Q2 slider was left on.
+   *
+   * Kept alongside `timeEstimate` rather than replacing it: the band still
+   * drives `recommendMode` and `AMOUNT_PHRASE`, and an install that answered
+   * before the slider existed has a band but no exact figure. Readers must
+   * treat a missing value as "not asked", not as zero.
+   */
+  timeEstimateMsPerDay?: number;
+  /** Only used to turn a yearly figure into a remaining-life one. Optional. */
+  age?: number;
   /** Q3 — the window(s) they think they lose time in. Seeds Rhythm's prior. */
   timeOfDay?: WhenAnswer[];
   /** Q4 — what has to keep working. This is what chose the mode. */
@@ -205,7 +216,8 @@ type SettingsState = {
   setHasHydrated: (value: boolean) => void;
   setOnboarded: (value: boolean) => void;
   setCosts: (values: CostAnswer[]) => void;
-  setTimeEstimate: (value: AmountAnswer) => void;
+  setTimeEstimate: (value: AmountAnswer, msPerDay?: number) => void;
+  setAge: (value: number | undefined) => void;
   setTimeOfDay: (values: WhenAnswer[]) => void;
   setKeeps: (values: KeepAnswer[]) => void;
   setMonthGoal: (value: GoalAnswer) => void;
@@ -269,7 +281,9 @@ export const useSettingsStore = create<SettingsState>()(
       setHasHydrated: (value) => set({ _hasHydrated: value }),
       setOnboarded: (value) => set({ onboarded: value }),
       setCosts: (values) => set({ costs: values }),
-      setTimeEstimate: (value) => set({ timeEstimate: value }),
+      setTimeEstimate: (value, msPerDay) =>
+        set({ timeEstimate: value, timeEstimateMsPerDay: msPerDay }),
+      setAge: (value) => set({ age: value }),
       setTimeOfDay: (values) => set({ timeOfDay: values }),
       setKeeps: (values) => set({ keeps: values }),
       setMonthGoal: (value) => set({ monthGoal: value }),
@@ -521,6 +535,8 @@ export const useSettingsStore = create<SettingsState>()(
         onboarded: state.onboarded,
         costs: state.costs,
         timeEstimate: state.timeEstimate,
+        timeEstimateMsPerDay: state.timeEstimateMsPerDay,
+        age: state.age,
         timeOfDay: state.timeOfDay,
         keeps: state.keeps,
         monthGoal: state.monthGoal,
@@ -589,6 +605,21 @@ export const useSettingsStore = create<SettingsState>()(
           // carried forward as a value nothing understands.
           costs: Array.isArray(saved.costs) ? saved.costs.filter(isCostAnswer) : [],
           timeEstimate: isAmountAnswer(saved.timeEstimate) ? saved.timeEstimate : undefined,
+          timeEstimateMsPerDay:
+            typeof saved.timeEstimateMsPerDay === 'number' &&
+            Number.isFinite(saved.timeEstimateMsPerDay) &&
+            saved.timeEstimateMsPerDay > 0
+              ? saved.timeEstimateMsPerDay
+              : undefined,
+          // Re-validated rather than trusted: `remainingYears` rejects an
+          // absurd age anyway, but a stored NaN would render as "NaN years".
+          age:
+            typeof saved.age === 'number' &&
+            Number.isFinite(saved.age) &&
+            saved.age >= 5 &&
+            saved.age <= 120
+              ? Math.floor(saved.age)
+              : undefined,
           timeOfDay: Array.isArray(saved.timeOfDay)
             ? saved.timeOfDay.filter(isWhenAnswer)
             : undefined,
